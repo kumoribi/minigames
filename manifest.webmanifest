@@ -1,0 +1,10 @@
+{
+  "name": "ミニゲーム集",
+  "short_name": "ミニゲーム",
+  "lang": "ja",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0d271c",
+  "theme_color": "#143d2b",
+  "icons": []
+}
