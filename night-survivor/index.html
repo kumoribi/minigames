@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#140f2b">
+  <meta name="description" content="自動攻撃と強化で5分間を生き残るサバイバルアクション">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="stylesheet" href="style.css?v=1">
+  <title>ナイトサバイバー | ミニゲーム集</title>
+</head>
+<body>
+  <main>
+    <header class="game-header">
+      <a class="back" href="../">‹ ミニゲーム集</a>
+      <button id="pause" class="icon-button" type="button" aria-label="一時停止">Ⅱ</button>
+    </header>
+    <section class="title-row">
+      <div><p class="eyebrow">NIGHT SURVIVOR</p><h1>ナイトサバイバー</h1></div>
+      <div class="best">最高記録<strong id="best">0</strong></div>
+    </section>
+    <section class="hud" aria-label="ゲーム状況">
+      <div><span>LEVEL</span><strong id="level">1</strong></div>
+      <div><span>TIME</span><strong id="time">5:00</strong></div>
+      <div><span>KILLS</span><strong id="kills">0</strong></div>
+      <div><span>SCORE</span><strong id="score">0</strong></div>
+    </section>
+    <div class="bars">
+      <div class="bar hp" aria-label="体力"><i id="hp-bar"></i><span id="hp-text">100 / 100</span></div>
+      <div class="bar xp" aria-label="経験値"><i id="xp-bar"></i><span id="xp-text">0 / 18 XP</span></div>
+    </div>
+    <section id="arena" class="arena" aria-label="ゲーム画面">
+      <canvas id="game" aria-label="ナイトサバイバーの戦場"></canvas>
+      <div id="boss-alert" class="boss-alert" hidden>⚠ BOSS APPROACHING ⚠</div>
+      <div id="stick" class="stick" aria-hidden="true"><i></i></div>
+      <div id="start-panel" class="start-panel">
+        <div class="crest">✦</div>
+        <h2>5分間、生き残れ</h2>
+        <p>移動だけで攻撃は自動。敵が落とす光を集めて強くなろう。</p>
+        <button id="start" type="button">戦闘開始</button>
+        <small>スマホ：画面をスライド　PC：WASD / 矢印キー</small>
+      </div>
+      <div id="paused-panel" class="paused-panel" hidden><strong>PAUSED</strong><button id="resume" type="button">再開する</button></div>
+    </section>
+    <section class="loadout" aria-label="装備一覧">
+      <h2>装備</h2><div id="loadout-list"></div>
+    </section>
+  </main>
+  <div id="upgrade-dialog" class="modal" hidden>
+    <section role="dialog" aria-modal="true" aria-labelledby="upgrade-title">
+      <p class="eyebrow">LEVEL UP</p><h2 id="upgrade-title">強化を選択</h2>
+      <div id="upgrade-list" class="upgrade-list"></div>
+    </section>
+  </div>
+  <div id="result-dialog" class="modal" hidden>
+    <section role="dialog" aria-modal="true" aria-labelledby="result-title">
+      <p id="result-label" class="eyebrow">GAME OVER</p><h2 id="result-title">夜に飲まれた…</h2>
+      <p id="result-summary"></p>
+      <button id="again" type="button">もう一度遊ぶ</button>
+      <a href="../">ミニゲーム集へ戻る</a>
+    </section>
+  </div>
+  <script src="game.js?v=1"></script>
+</body>
+</html>
