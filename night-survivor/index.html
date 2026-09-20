@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#140f2b">
   <meta name="description" content="自動攻撃と強化で10分間を生き残るサバイバルアクション">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
   <title>ナイトサバイバー | ミニゲーム集</title>
 </head>
 <body>
@@ -43,7 +43,13 @@
       <div id="paused-panel" class="paused-panel" hidden><strong>PAUSED</strong><button id="resume" type="button">再開する</button></div>
     </section>
     <section class="loadout" aria-label="装備一覧">
-      <h2>装備</h2><div id="loadout-list"></div>
+      <div class="loadout-head"><h2>装備</h2><small>各4枠</small></div>
+      <div class="loadout-group weapon-group">
+        <h3><span>武器</span><b id="weapon-count">1 / 4</b></h3><div id="weapon-list" class="loadout-list"></div>
+      </div>
+      <div class="loadout-group ability-group">
+        <h3><span>能力</span><b id="ability-count">0 / 4</b></h3><div id="ability-list" class="loadout-list"></div>
+      </div>
     </section>
     <details class="rules">
       <summary>武器・アイテムの説明</summary>
@@ -51,13 +57,36 @@
       <p><b>能力も最大4種類。</b>攻撃範囲を上げると、すべての武器の射程が広がります。</p>
       <p>敵は時間とともに強くなり、金色に輝く強化個体は通常より非常に頑丈ですが、経験値と得点も多く獲得できます。</p>
       <p>エリートの宝箱は強化内容を表示し、条件を満たした武器があれば優先して進化させます。</p>
+      <h3>武器進化の組み合わせ</h3>
+      <p>武器Lv5と対応能力Lv3をそろえて宝箱を取ると進化します。</p>
+      <div class="evolution-table-wrap"><table class="evolution-table">
+        <thead><tr><th>武器</th><th>必要能力</th><th>進化後</th></tr></thead>
+        <tbody>
+          <tr><td>魔法弾 Lv5</td><td>攻撃力 Lv3</td><td>星砕きの魔弾</td></tr>
+          <tr><td>回転刃 Lv5</td><td>防御力 Lv3</td><td>守護輪刃</td></tr>
+          <tr><td>雷撃 Lv5</td><td>攻撃速度 Lv3</td><td>天雷連鎖</td></tr>
+          <tr><td>炎の輪 Lv5</td><td>攻撃範囲 Lv3</td><td>獄炎結界</td></tr>
+          <tr><td>貫通矢 Lv5</td><td>移動速度 Lv3</td><td>幻影連弩</td></tr>
+          <tr><td>氷結波 Lv5</td><td>吸引範囲 Lv3</td><td>絶対零域</td></tr>
+          <tr><td>聖なる光 Lv5</td><td>自動回復 Lv3</td><td>暁の聖域</td></tr>
+        </tbody>
+      </table></div>
     </details>
   </main>
   <div id="upgrade-dialog" class="modal" hidden>
     <section role="dialog" aria-modal="true" aria-labelledby="upgrade-title">
       <p class="eyebrow">LEVEL UP</p><h2 id="upgrade-title">強化を選択</h2>
+      <p id="upgrade-slots" class="slot-summary">武器 1 / 4 ・ 能力 0 / 4</p>
       <div id="upgrade-list" class="upgrade-list"></div>
       <button id="reroll" class="reroll" type="button">↻ 候補を引き直す（1回）</button>
+    </section>
+  </div>
+  <div id="swap-dialog" class="modal" hidden>
+    <section role="dialog" aria-modal="true" aria-labelledby="swap-title">
+      <p class="eyebrow">SLOT FULL</p><h2 id="swap-title">入れ替える装備を選択</h2>
+      <p id="swap-summary" class="swap-summary"></p>
+      <div id="swap-list" class="upgrade-list"></div>
+      <button id="swap-cancel" class="reroll" type="button">候補選択へ戻る</button>
     </section>
   </div>
   <div id="result-dialog" class="modal" hidden>
@@ -75,6 +104,6 @@
       <button id="reward-close" type="button">戦闘へ戻る</button>
     </section>
   </div>
-  <script src="game.js?v=4"></script>
+  <script src="game.js?v=5"></script>
 </body>
 </html>
