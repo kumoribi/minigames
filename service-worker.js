@@ -1,4 +1,4 @@
-const CACHE = 'minigames-v4';
+const CACHE = 'minigames-v5';
 const ASSETS = ['./', './index.html', './styles/common.css', './othello/', './othello/index.html', './othello/style.css', './othello/game.js', './potion-sort/', './potion-sort/index.html', './potion-sort/style.css', './potion-sort/game.js', './minesweeper/', './minesweeper/index.html', './minesweeper/style.css', './minesweeper/game.js', './2048/', './2048/index.html', './2048/style.css', './2048/game.js'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS))));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
