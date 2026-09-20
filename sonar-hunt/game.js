@@ -4,7 +4,7 @@ const PRESETS=[
   {size:10,ships:[4,3,3,2],sonars:6,charges:20}
 ];
 let stage=1,score=0,best=Number(localStorage.getItem('sonar-best')||0),mode='sonar';
-let cfg,fleet,cells,sonars,charges,seconds=0,timer,started=false,ended=false;
+let cfg,fleet,cells,sonars,charges,seconds=0,timer,started=false,ended=false,latestSonar=null;
 const board=document.querySelector('#board'),message=document.querySelector('#message');
 
 function stageConfig(){
@@ -32,24 +32,43 @@ function makeFleet(){
 function startClock(){if(started)return;started=true;timer=setInterval(()=>{seconds++;showStatus()},1000)}
 function distanceToFleet(r,c){return Math.min(...fleet.flatMap(ship=>ship.cells.map(p=>Math.abs(r-p.r)+Math.abs(c-p.c))))}
 function shipAt(r,c){return fleet.find(ship=>ship.cells.some(p=>p.r===r&&p.c===c))}
+function isCandidate(r,c){
+  if(!latestSonar||cells[r*cfg.size+c].shot!==null)return false;
+  if(Math.abs(r-latestSonar.r)+Math.abs(c-latestSonar.c)!==latestSonar.distance)return false;
+  return cells.every((scan,i)=>{
+    if(scan.sonar===null)return true;
+    const sr=Math.floor(i/cfg.size),sc=i%cfg.size;
+    return Math.abs(r-sr)+Math.abs(c-sc)>=scan.sonar;
+  });
+}
 function cellLabel(cell,i){
   const r=Math.floor(i/cfg.size)+1,c=i%cfg.size+1,parts=[`${r}行${c}列`];
   if(cell.sonar!==null)parts.push(`ソナー距離${cell.sonar}`);
   if(cell.shot==='hit')parts.push('命中');
   if(cell.shot==='miss')parts.push('外れ');
+  if(isCandidate(r-1,c-1))parts.push('潜水艦候補');
   return parts.join('、');
+}
+function renderFleet(){
+  const list=document.querySelector('#fleet-list');list.replaceChildren();
+  fleet.forEach(ship=>{
+    const item=document.createElement('span'),shape=document.createElement('span'),label=document.createElement('small');
+    item.className=`fleet-ship${ship.sunk?' sunk':''}`;shape.textContent='▰'.repeat(ship.cells.length);label.textContent=`${ship.cells.length}マス`;
+    item.setAttribute('aria-label',`${ship.cells.length}マス潜水艦、${ship.sunk?'撃沈済み':'未撃沈'}`);item.append(shape,label);list.append(item);
+  });
 }
 function render(){
   board.style.setProperty('--size',cfg.size);board.replaceChildren();
   cells.forEach((cell,i)=>{
     const r=Math.floor(i/cfg.size),c=i%cfg.size,b=document.createElement('button');
     b.type='button';b.className='cell';b.dataset.index=i;b.setAttribute('role','gridcell');b.setAttribute('aria-label',cellLabel(cell,i));
-    if(cell.sonar!==null){b.classList.add('sonar');b.textContent=cell.sonar;if(cell.sonar===0)b.classList.add('hot');else if(cell.sonar===1)b.classList.add('near')}
+    if(cell.sonar!==null){const mark=document.createElement('span');mark.className='cell-mark';mark.textContent=cell.sonar;b.append(mark);b.classList.add('sonar');if(cell.sonar===0)b.classList.add('hot');else if(cell.sonar===1)b.classList.add('near')}
     if(cell.shot)b.classList.add(cell.shot);
+    if(isCandidate(r,c))b.classList.add('candidate');
     if(ended&&cell.shot!=='hit'&&shipAt(r,c))b.classList.add('reveal');
     b.onclick=()=>act(i,b);board.append(b);
   });
-  showStatus();showMode();
+  showStatus();showMode();renderFleet();
 }
 function showStatus(){
   document.querySelector('#stage').textContent=stage;document.querySelector('#score').textContent=score;
@@ -68,7 +87,7 @@ function act(i){
   if(mode==='sonar'){
     if(cell.sonar!==null){message.textContent='この海域はすでに調査済みです';return}
     if(!sonars){setMode('charge');return}
-    cell.sonar=distanceToFleet(r,c);sonars--;
+    cell.sonar=distanceToFleet(r,c);latestSonar={r,c,distance:cell.sonar};sonars--;
     message.textContent=cell.sonar===0?'強烈な反応！ この真下です':cell.sonar===1?'至近距離に反応があります':`最も近い反応まで ${cell.sonar} マス`;
     if(!sonars)mode='charge';render();board.querySelector(`[data-index="${i}"]`).classList.add('ping');return;
   }
@@ -89,7 +108,7 @@ function finish(success){
 }
 function startStage(resetProgress=false){
   clearInterval(timer);if(resetProgress){stage=1;score=0}cfg=stageConfig();fleet=makeFleet();cells=Array.from({length:cfg.size*cfg.size},()=>({sonar:null,shot:null}));
-  sonars=cfg.sonars;charges=cfg.charges;seconds=0;started=ended=false;mode='sonar';document.querySelector('#dialog').hidden=true;
+  sonars=cfg.sonars;charges=cfg.charges;seconds=0;started=ended=false;latestSonar=null;mode='sonar';document.querySelector('#dialog').hidden=true;
   message.textContent='海域を選んでソナーを発射してください';render();
 }
 document.querySelector('#sonar-mode').onclick=()=>setMode('sonar');
