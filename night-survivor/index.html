@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#140f2b">
   <meta name="description" content="自動攻撃と強化で10分間を生き残るサバイバルアクション">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
   <title>ナイトサバイバー | ミニゲーム集</title>
 </head>
 <body>
@@ -27,7 +27,7 @@
     </section>
     <div class="bars">
       <div class="bar hp" aria-label="体力"><i id="hp-bar"></i><span id="hp-text">100 / 100</span></div>
-      <div class="bar xp" aria-label="経験値"><i id="xp-bar"></i><span id="xp-text">0 / 18 XP</span></div>
+      <div class="bar xp" aria-label="経験値"><i id="xp-bar"></i><span id="xp-text">0 / 24 XP</span></div>
     </div>
     <section id="arena" class="arena" aria-label="ゲーム画面">
       <canvas id="game" aria-label="ナイトサバイバーの戦場"></canvas>
@@ -48,7 +48,8 @@
     <details class="rules">
       <summary>武器・アイテムの説明</summary>
       <p><b>武器は最大4種類。</b>魔法弾、回転刃、雷撃、炎の輪、貫通矢、氷結波、聖なる光から選べます。</p>
-      <p>敵が落とす回復薬、磁石、爆弾、時計、エリートの宝箱を拾うと戦況を変えられます。</p>
+      <p><b>能力も最大4種類。</b>攻撃範囲を上げると、すべての武器の射程が広がります。</p>
+      <p>エリートの宝箱は強化内容を表示し、条件を満たした武器があれば優先して進化させます。</p>
     </details>
   </main>
   <div id="upgrade-dialog" class="modal" hidden>
@@ -66,6 +67,13 @@
       <a href="../">ミニゲーム集へ戻る</a>
     </section>
   </div>
-  <script src="game.js?v=2"></script>
+  <div id="reward-dialog" class="modal" hidden>
+    <section class="treasure" role="dialog" aria-modal="true" aria-labelledby="reward-title">
+      <p class="eyebrow">TREASURE</p><h2 id="reward-title">宝箱を獲得！</h2>
+      <div id="reward-list" class="reward-list"></div>
+      <button id="reward-close" type="button">戦闘へ戻る</button>
+    </section>
+  </div>
+  <script src="game.js?v=3"></script>
 </body>
 </html>
