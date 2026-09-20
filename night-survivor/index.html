@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#140f2b">
-  <meta name="description" content="自動攻撃と強化で5分間を生き残るサバイバルアクション">
+  <meta name="description" content="自動攻撃と強化で10分間を生き残るサバイバルアクション">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="style.css?v=3">
   <title>ナイトサバイバー | ミニゲーム集</title>
 </head>
 <body>
@@ -21,7 +21,7 @@
     </section>
     <section class="hud" aria-label="ゲーム状況">
       <div><span>LEVEL</span><strong id="level">1</strong></div>
-      <div><span>TIME</span><strong id="time">5:00</strong></div>
+      <div><span>TIME</span><strong id="time">10:00</strong></div>
       <div><span>KILLS</span><strong id="kills">0</strong></div>
       <div><span>SCORE</span><strong id="score">0</strong></div>
     </section>
@@ -35,7 +35,7 @@
       <div id="stick" class="stick" aria-hidden="true"><i></i></div>
       <div id="start-panel" class="start-panel">
         <div class="crest">✦</div>
-        <h2>5分間、生き残れ</h2>
+        <h2>10分間、生き残れ</h2>
         <p>移動だけで攻撃は自動。敵が落とす光を集めて強くなろう。</p>
         <button id="start" type="button">戦闘開始</button>
         <small>スマホ：画面をスライド　PC：WASD / 矢印キー</small>
@@ -45,11 +45,17 @@
     <section class="loadout" aria-label="装備一覧">
       <h2>装備</h2><div id="loadout-list"></div>
     </section>
+    <details class="rules">
+      <summary>武器・アイテムの説明</summary>
+      <p><b>武器は最大4種類。</b>魔法弾、回転刃、雷撃、炎の輪、貫通矢、氷結波、聖なる光から選べます。</p>
+      <p>敵が落とす回復薬、磁石、爆弾、時計、エリートの宝箱を拾うと戦況を変えられます。</p>
+    </details>
   </main>
   <div id="upgrade-dialog" class="modal" hidden>
     <section role="dialog" aria-modal="true" aria-labelledby="upgrade-title">
       <p class="eyebrow">LEVEL UP</p><h2 id="upgrade-title">強化を選択</h2>
       <div id="upgrade-list" class="upgrade-list"></div>
+      <button id="reroll" class="reroll" type="button">↻ 候補を引き直す（1回）</button>
     </section>
   </div>
   <div id="result-dialog" class="modal" hidden>
@@ -60,6 +66,6 @@
       <a href="../">ミニゲーム集へ戻る</a>
     </section>
   </div>
-  <script src="game.js?v=1"></script>
+  <script src="game.js?v=2"></script>
 </body>
 </html>
