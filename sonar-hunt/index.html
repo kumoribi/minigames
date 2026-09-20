@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#061b2a">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+  <title>ソナーハント | ミニゲーム集</title>
+</head>
+<body>
+  <main>
+    <a class="back" href="../">‹ ミニゲーム集</a>
+    <header>
+      <div><p class="eyebrow">DEEP SEA SEARCH</p><h1>ソナーハント</h1><p>反響距離から潜水艦を探し出せ</p></div>
+      <div class="best">最高<strong id="best">0</strong></div>
+    </header>
+
+    <section class="mission" aria-label="現在の任務">
+      <span>海域 <b id="stage">1</b></span><span>得点 <b id="score">0</b></span><span>時間 <b id="time">0:00</b></span>
+    </section>
+    <section class="resources" aria-label="残り装備">
+      <span>◎ ソナー <b id="sonars">0</b></span><span>✹ 爆雷 <b id="charges">0</b></span><span>潜水艦 <b id="ships">0</b></span>
+    </section>
+
+    <section class="controls" aria-label="装備選択">
+      <button id="sonar-mode" class="mode active" type="button" aria-pressed="true"><span>◎</span>ソナー探索</button>
+      <button id="charge-mode" class="mode" type="button" aria-pressed="false"><span>✹</span>爆雷投下</button>
+    </section>
+
+    <section class="scope">
+      <div class="sweep" aria-hidden="true"></div>
+      <div id="board" class="board" role="grid" aria-label="潜水艦探索海域"></div>
+    </section>
+    <p id="message" class="message" role="status">海域を選んでソナーを発射してください</p>
+    <button id="restart" class="restart" type="button">↻ 最初から</button>
+
+    <details class="rules">
+      <summary>遊び方</summary>
+      <p><b>ソナー</b>は選んだマスから最も近い潜水艦までの距離を数字で表示します。0ならその真下です。</p>
+      <p>位置を推理したら<b>爆雷</b>へ切り替えて攻撃。限られた爆雷ですべての潜水艦を沈めると任務成功です。</p>
+    </details>
+  </main>
+
+  <div id="dialog" class="dialog" hidden>
+    <section role="dialog" aria-modal="true" aria-labelledby="result-title">
+      <p id="result-label" class="result-label">MISSION COMPLETE</p>
+      <h2 id="result-title">海域を制圧！</h2>
+      <p id="result-text"></p>
+      <button id="next" type="button">次の海域へ</button>
+      <button id="again" class="secondary" type="button">最初から遊ぶ</button>
+    </section>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
