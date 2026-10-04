@@ -6,22 +6,29 @@
   <meta name="theme-color" content="#140f2b">
   <meta name="description" content="自動攻撃と強化で10分間を生き残るサバイバルアクション">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=9">
   <title>ナイトサバイバー | ミニゲーム集</title>
 </head>
 <body>
   <main>
     <header class="game-header">
       <a class="back" href="../">‹ ミニゲーム集</a>
-      <button id="pause" class="icon-button" type="button" aria-label="一時停止">Ⅱ</button>
+      <div class="header-actions">
+        <button id="feedback" class="icon-button" type="button" aria-label="効果音と振動を切り替える" aria-pressed="true" title="効果音と振動：オン">♬</button>
+        <button id="pause" class="icon-button" type="button" aria-label="一時停止">Ⅱ</button>
+      </div>
     </header>
     <section class="title-row">
-      <div><p class="eyebrow">NIGHT SURVIVOR</p><h1>ナイトサバイバー</h1></div>
+      <div><p class="eyebrow">NIGHT SURVIVOR</p><h1>ナイトサバイバー</h1><p class="subtitle">夜を越え、夜明けを奪い返せ</p></div>
       <div class="best">最高記録<strong id="best">0</strong></div>
     </section>
+    <section class="phase-track" aria-label="夜の進行状況">
+      <div><span id="phase-label">第一夜・宵闇</span><b id="phase-hint">夜明けまで 10:00</b></div>
+      <i><span id="phase-progress"></span></i>
+    </section>
     <section class="hud" aria-label="ゲーム状況">
+      <div class="time-stat"><span>夜明けまで</span><strong id="time">10:00</strong></div>
       <div><span>LEVEL</span><strong id="level">1</strong></div>
-      <div><span>TIME</span><strong id="time">10:00</strong></div>
       <div><span>KILLS</span><strong id="kills">0</strong></div>
       <div><span>SCORE</span><strong id="score">0</strong></div>
     </section>
@@ -31,10 +38,17 @@
     </div>
     <section id="arena" class="arena" aria-label="ゲーム画面">
       <canvas id="game" aria-label="ナイトサバイバーの戦場"></canvas>
+      <div class="arena-vignette" aria-hidden="true"></div>
+      <div id="boss-status" class="boss-status" hidden>
+        <div><span>夜の王</span><b id="boss-hp-text">60000 / 60000</b></div>
+        <i><span id="boss-hp-bar"></span></i>
+      </div>
       <div id="boss-alert" class="boss-alert" hidden>⚠ BOSS APPROACHING ⚠</div>
+      <div id="streak" class="streak" hidden><small>NIGHT CHAIN</small><strong>×<span>0</span></strong></div>
       <div id="stick" class="stick" aria-hidden="true"><i></i></div>
       <div id="start-panel" class="start-panel">
-        <div class="crest">✦</div>
+        <div class="crest"><i></i><span>✦</span></div>
+        <p class="start-kicker">THE NIGHT IS HUNGRY</p>
         <h2>10分間、生き残れ</h2>
         <p>移動だけで攻撃は自動。敵が落とす光を集めて強くなろう。</p>
         <button id="start" type="button">戦闘開始</button>
@@ -57,6 +71,7 @@
       <p><b>能力も最大4種類。</b>攻撃範囲を上げると、すべての武器の射程が広がります。</p>
       <p>レベルアップ時は3つの強化候補に加え、装備枠を使わず最大HPの35%を回復する選択肢が常に表示されます。</p>
       <p>武器ごとに専用の軌跡・着弾演出があり、進化後は光、残像、雷の枝分かれなどがさらに強化されます。</p>
+      <p>夜は2分ごとに深まり、背景と戦場の色が変化します。画面端の光る矢印は、強化個体・エリート・ボスがいる方向を示します。</p>
       <p>敵は時間とともに強くなり、金色に輝く強化個体は通常より非常に頑丈ですが、経験値と得点も多く獲得できます。</p>
       <p>エリートの宝箱は強化内容を表示し、条件を満たした武器があれば優先して進化させます。</p>
       <h3>武器進化の組み合わせ</h3>
@@ -106,6 +121,6 @@
       <button id="reward-close" type="button">戦闘へ戻る</button>
     </section>
   </div>
-  <script src="game.js?v=7"></script>
+  <script src="game.js?v=9"></script>
 </body>
 </html>
