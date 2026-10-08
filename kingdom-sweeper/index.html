@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
@@ -29,8 +29,9 @@
       <button type="button" data-speed="2" aria-pressed="false">2×</button>
       <button type="button" data-speed="4" aria-pressed="false">4×</button>
     </div>
-    <div class="map-controls"><button id="zoom-out" aria-label="地図を縮小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="地図を拡大">＋</button><button id="center" title="王城へ移動">⌂ 王城</button></div>
+    <div class="map-controls"><button id="zoom-out" aria-label="地図を縮小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="地図を拡大">＋</button><button id="center" title="王城へ移動" aria-label="王城へ移動">⌂ 王城</button></div>
   </section>
+  <section class="guide" aria-label="次の目標"><div><small id="guide-step"></small><strong id="guide-title"></strong><p id="guide-text"></p></div><button id="guide-toggle" aria-expanded="true">案内を隠す</button></section>
   <div class="workspace">
     <section class="map-panel" aria-label="王国の地図">
       <div class="map-heading"><span><i class="live-dot"></i> <b id="status">開拓を開始しよう</b></span><small id="territory">領土 9 / 400</small></div>
@@ -40,30 +41,37 @@
         <button data-mode="flag" aria-pressed="false">⚑ 危険メモ</button>
         <button data-mode="pan" aria-pressed="false">✥ 地図移動</button>
       </div>
+      <button id="threat" class="threat" hidden></button>
+      <div id="boss" class="boss" hidden><span>DRAGON <b id="boss-hp"></b></span><progress id="boss-bar" max="1200" value="1200"></progress></div>
       <div id="viewport" class="viewport" tabindex="0" aria-label="20×20地図。矢印キーでマス選択、Enterで操作">
         <canvas id="map" width="1120" height="1120" aria-label="未探索の地を開拓する王国マップ"></canvas>
         <div id="loading" class="loading">王国の地図を準備中…</div>
       </div>
       <p class="map-help" id="mode-help">未探索マスをタップして開拓予約。ドラッグでまとめて予約。</p>
+      <button id="queue-open" class="queue-open">作業予約を確認</button>
       <div class="keep-health"><span>王城 HP <b id="keep-hp">900 / 900</b></span><i><span id="keep-bar"></span></i><small id="army">Worker 3 ・ Soldier 0</small></div>
     </section>
-    <aside class="sidebar">
-      <section class="panel tile-detail">
+    <aside class="sidebar" id="context-panel" aria-label="王国の操作パネル">
+      <div class="sheet-heading"><strong id="sheet-title">選択情報</strong><button id="sheet-close" aria-label="操作パネルを閉じる">×</button></div>
+      <section class="panel tile-detail" data-sheet="detail">
         <p class="eyebrow">SELECTED TILE</p><h2 id="tile-title">王城</h2><p id="tile-description"></p>
         <p id="building-effects" class="effect-info" aria-live="polite"></p>
         <div id="tile-actions" class="tile-actions"></div>
       </section>
-      <section class="panel">
+      <section class="panel" data-sheet="build">
         <div class="section-heading"><h2>建築計画</h2><small>選んで平地をタップ</small></div>
         <div id="build-list" class="build-list"></div>
         <p id="build-help" class="muted">Workerが建築します。費用は予約時に確保。</p>
       </section>
-      <section class="panel">
+      <section class="panel" data-sheet="queue">
         <div class="section-heading"><h2>開拓・建築予約</h2><b id="queue-count">0</b></div>
         <div id="queue-list" class="queue-list"><p class="muted">予約はありません</p></div>
       </section>
     </aside>
   </div>
+  <nav class="mobile-dock" aria-label="王国の操作"><button data-dock="explore">⛏ 開拓</button><button data-dock="build">⌂ 建築</button><button data-dock="army">⚔ 軍備</button><button data-dock="flag">⚑ 旗</button><button data-dock="pan">✥ 移動</button></nav>
+  <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
+  <section class="preferences"><label><input id="motion" type="checkbox"> 演出を控えめに</label><label><input id="sound" type="checkbox"> 効果音</label></section>
   <section class="panel upgrade-panel"><h2>この王国の強化</h2><p id="kingdom-upgrades">農場 +0% ・ 兵士攻撃 +0% ・ 塔射程 +0%</p><small>宝箱で獲得。同じ強化は基本値への加算、建物シナジーとは乗算。新しい王国ではリセット。</small></section>
   <p id="notice" class="notice" role="status" aria-live="polite">Dragonの眠る場所を推測し、軍備を整えてから起こそう。</p>
   <div class="footer-grid">
@@ -91,7 +99,7 @@
     <h3>まずは、この順番で遊ぼう</h3>
     <ol class="help-steps">
       <li><b>「停止」で落ち着いて計画する</b><p>停止中でも建築・開拓・育成を予約できます。初回はヘルプを閉じても停止したままなので、準備ができたら「1×」を押してください。</p></li>
-      <li><b>農場と兵舎を建てる</b><p>「建築計画」の「農場」を選び、地図の<b>開拓済みで何もない草地</b>をタップ。同様に「兵舎」を別の草地に予約します。最初の費用は合計WOOD 80・FOOD 20。「1×」で進めるとWorker（作業員）が建築します。</p><p>スマホでは建築計画が地図の下にあります。建物を選んでから地図へ戻ってください。</p></li>
+      <li><b>農場と兵舎を建てる</b><p>「建築計画」の「農場」を選び、地図の<b>開拓済みで何もない草地</b>をタップ。同様に「兵舎」を別の草地に予約します。最初の費用は合計WOOD 80・FOOD 20。「1×」で進めるとWorker（作業員）が建築します。空き草地がなければ、外側を少し開拓するか資源を採集し切りましょう。</p><p>スマホでは画面下の「建築」で建物を選び、地図をタップ。「軍備」で兵舎（未建設なら王城）の育成操作を開けます。</p></li>
       <li><b>完成した兵舎で兵士を育てる</b><p>「選択」モードで地図の兵舎をタップし、選択情報の「Soldier育成」を押します。1体につきFOOD 30・WOOD 15、育成に7秒かかります。まず数体をそろえましょう。兵士は自動で戦います。</p></li>
       <li><b>数字を読みながら領土を広げる</b><p>「開拓」モードで暗い未探索マスをタップ。Workerが開拓します。最初は領土の上下左右に接するマスから少しずつ。ドラッグでまとめて予約できますが、序盤に大量予約するとWorkerが採集できなくなります。</p></li>
       <li><b>資源と防衛を増やす</b><p>Workerは空き時間に森林からWOOD、食料からFOOD、鉱山からGOLDを集めます。農場はFOODを自動生産。人口が上限なら「民家」で上限を5増やします。「監視塔」は3マス以内の敵を攻撃します。</p></li>
@@ -104,6 +112,8 @@
     <h3>困ったとき</h3>
     <dl><dt>建築できない</dt><dd>開拓済みの空き平地を選びます。森・鉱山・食料は採集し切ると平地になります。資源不足・別の予約・近くの敵も確認してください。</dd><dt>予約が「待機」のまま</dt><dd>上下左右の道がつながっていないか、Workerが別の作業中です。作業員が敵から退避することもあります。不要な予約は「×」で取消できます。</dd><dt>資源が増えない</dt><dd>開拓や建築を減らし、Workerに採集時間を与えます。資源マスを選択し「全Workerでこの資源を採集」で集中採集。「Workerの採集を自動に戻す」で分担に戻せます。</dd><dt>兵士を増やせない</dt><dd>FOOD・WOOD、人口上限、兵舎の育成待ち（最大5体）を確認。人口には育成予約も含まれます。</dd><dt>タブに戻ると止まっている</dt><dd>画面を離れると自動停止します。「1×」などで再開してください。</dd></dl>
     <h3>スマホ・PCの操作</h3>
+    <p>画面内の案内は進行に応じて変わり、「案内を隠す」で折りたためます。「作業予約を確認」で取消・作業地点への移動ができます。襲撃表示を押すと王城に最も近い敵へ移動。ドラゴンのHPは専用バーでも確認できます。</p>
+    <p>「演出を控えめに」で動きを抑制（OSのモーション軽減設定も尊重）。効果音は初期OFFで、チェックした場合だけ再生します。演出は1×〜4×でも同じ長さで表示され、戦闘の計算や強さは変わりません。</p>
     <p>「地図移動」でドラッグ、「＋／−」で拡縮、「⌂ 王城」で中央へ戻ります。「開拓」と「地図移動」を切り替えて使ってください。PCでは右クリックで採集・集合命令、Spaceで停止切替もできます。</p>
     <h3>建物を組み合わせて強くする</h3>
     <p>農場の周囲8マスに風車を建てると、生産量が25%増えます。兵舎の上下左右に鍛冶屋を建てると、その後育成完了した兵士の攻撃・HPが20%増えます。どちらも複数隣接させても重複しません。選択した建物の黄色枠は風車、青枠は鍛冶屋の判定範囲です。監視塔を選ぶと射程が青い円で表示されます。</p>
@@ -115,6 +125,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>強化を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>同じ強化は加算で累積。この王国だけで有効。</small></div></dialog>
-<script src="engine.js?v=2"></script><script src="game.js?v=3"></script>
+<script src="engine.js?v=3"></script><script src="game.js?v=4"></script>
 </body>
 </html>

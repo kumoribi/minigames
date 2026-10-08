@@ -154,7 +154,7 @@
         task.remaining -= dt;
         if (task.remaining <= 0) {
           if (task.kind === 'explore') reveal(s, task.tileId);
-          else { s.tiles[task.tileId].building = building(task.building); log(s, `${BUILDINGS[task.building].name}が完成。`); }
+          else { const tile = s.tiles[task.tileId]; tile.building = building(task.building); s.effects.push({ kind: 'build', x: tile.x, y: tile.y, life: .8 }); log(s, `${BUILDINGS[task.building].name}が完成。`); }
           s.tasks = s.tasks.filter(t => t !== task); u.task = null;
         }
       }
@@ -168,10 +168,11 @@
     if (target && move(s, u, [target.id], 1.8, dt)) {
       const amount = Math.min(target.amount, 2 * dt), key = { forest: 'wood', food: 'food', mine: 'gold' }[target.terrain];
       target.amount -= amount; s.resources[key] += amount; u.gather += dt;
+      if (u.gather >= 2) { u.gather -= 2; s.effects.push({ kind: 'gather', resource: key, x: target.x, y: target.y, life: .7 }); }
       if (target.amount <= .001) { target.amount = 0; target.terrain = 'grass'; log(s, '採集地点が平地になりました。'); }
     }
   }
-  function hit(s, target, damage, source) { target.hp -= damage; s.effects.push({ kind: 'hit', x: target.x, y: target.y, fromX: source.x, fromY: source.y, life: .2 }); }
+  function hit(s, target, damage, source) { target.hp -= damage; s.effects.push({ kind: 'hit', source: source.kind || source.building?.kind, damage, x: target.x, y: target.y, fromX: source.x, fromY: source.y, life: .3 }); }
   function updateSoldier(s, u, dt) {
     const enemy = nearest(s.enemies.filter(e => e.hp > 0), u);
     u.cooldown = Math.max(0, u.cooldown - dt);
