@@ -68,9 +68,6 @@
         if (t.building) image(t.building.kind,x+1,y,CELL-2,CELL);
         const unveiling=visualEffects.find(e=>e.kind==='reveal'&&Math.round(e.x)===t.x&&Math.round(e.y)===t.y);
         if(unveiling&&!reduced()){ctx.fillStyle=`rgba(36,62,50,${Math.max(0,1-(visualTime-unveiling.started)/.45)})`;ctx.fillRect(x,y,CELL,CELL);}
-        ctx.fillStyle = '#0c251dda'; ctx.fillRect(x+3,y+3,20,20);
-        ctx.fillStyle = ['#d4ddbf','#a2ddff','#fff292','#ffa67f','#ff8795'][Math.min(4,t.clue)];
-        ctx.font='bold 16px sans-serif'; ctx.textAlign='center'; ctx.fillText(t.clue,x+13,y+19);
       } else {
         ctx.fillStyle=(t.x+t.y)%2 ? '#243e32' : '#294638'; ctx.fillRect(x,y,CELL,CELL);
         ctx.fillStyle='#557c5d'; ctx.font='20px sans-serif'; ctx.textAlign='center'; ctx.fillText(t.flag ? '⚑' : '·',x+CELL/2,y+35);
@@ -101,13 +98,13 @@
     }
     const units=[...world.units,...world.enemies].sort((a,b)=>a.y-b.y);
     for(const u of units) {
-      const size=u.kind==='dragon' ? 84 : u.kind==='worker' ? 30 : 38;
+      const size=u.kind==='dragon' ? 108 : u.kind==='worker' ? 42 : 50;
       const offset=u.kind==='worker' ? (u.id%3-1)*7 : (u.id%3-1)*3;
       const x=(u.x+.5)*CELL+offset,y=(u.y+.5)*CELL;
       ctx.fillStyle='#071c1670';ctx.beginPath();ctx.ellipse(x,y+12,size*.3,6,0,0,Math.PI*2);ctx.fill();
       image(u.kind,x-size/2,y-size*.65,size,size);
-      if(u.kind==='worker' && world.enemies.some(e=>Math.hypot(e.x-u.x,e.y-u.y)<2.2)){ctx.fillStyle='#ffd0aa';ctx.font='bold 14px sans-serif';ctx.fillText('退避',x,y-24);}
-      if(u.hp<u.maxHp || u.kind==='dragon') {ctx.fillStyle='#251b16';ctx.fillRect(x-18,y-size*.65-7,36,4);ctx.fillStyle=u.kind==='goblin'||u.kind==='dragon' ? '#fa7265' : '#a5e28c';ctx.fillRect(x-18,y-size*.65-7,36*Math.max(0,u.hp/u.maxHp),4);}
+      if(u.kind==='worker' && world.enemies.some(e=>Math.hypot(e.x-u.x,e.y-u.y)<2.2)){ctx.fillStyle='#ffd0aa';ctx.font='bold 14px sans-serif';ctx.textAlign='center';ctx.fillText('退避',x,y-size*.65-13);}
+      if(u.hp<u.maxHp || u.kind==='dragon') {const barWidth=u.kind==='dragon'?64:u.kind==='worker'?38:44,barY=y-size*.65-8;ctx.fillStyle='#251b16';ctx.fillRect(x-barWidth/2,barY,barWidth,5);ctx.fillStyle=u.kind==='goblin'||u.kind==='dragon' ? '#fa7265' : '#a5e28c';ctx.fillRect(x-barWidth/2,barY,barWidth*Math.max(0,Math.min(1,u.hp/u.maxHp)),5);}
     }
     for(const effect of visualEffects) {
       const x=(effect.x+.5)*CELL,y=(effect.y+.5)*CELL;
@@ -126,6 +123,9 @@
     }
     const t=world.tiles[selected];ctx.strokeStyle='#ffe8a3';ctx.lineWidth=3;ctx.strokeRect(t.x*CELL+2,t.y*CELL+2,CELL-4,CELL-4);
     const rally=world.tiles[world.rally];ctx.fillStyle='#82c8ff';ctx.font='14px sans-serif';ctx.fillText('⚑',rally.x*CELL+45,rally.y*CELL+52);
+    // Clues are gameplay information: keep them above enlarged sprites and effects.
+    ctx.textAlign='center';ctx.font='bold 16px sans-serif';
+    for(const tile of world.tiles)if(tile.revealed){const x=tile.x*CELL,y=tile.y*CELL;ctx.fillStyle='#0c251df2';ctx.fillRect(x+3,y+3,20,20);ctx.fillStyle=['#d4ddbf','#a2ddff','#fff292','#ffa67f','#ff8795'][Math.min(4,tile.clue)];ctx.fillText(tile.clue,x+13,y+19);}
   }
   function setSpeed(speed) { if(world.result) return;world.speed=speed;if(speed) previousSpeed=speed;render(); }
   function setMode(next,kind=null) {
