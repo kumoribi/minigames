@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#203d28">
+  <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="stylesheet" href="style.css?v=1">
+  <title>キングダムスイーパー | ミニゲーム集</title>
+</head>
+<body>
+<main>
+  <header><a href="../">‹ ミニゲーム集</a><span class="edition">探索 × 王国づくり</span></header>
+  <section class="hero">
+    <div><p class="eyebrow">KINGDOM SWEEPER</p><h1>キングダムスイーパー</h1><p class="tagline">数字を読み、未知の地に王国を築く。</p></div>
+    <img src="assets/keep.png" alt="" class="hero-castle">
+  </section>
+  <section class="resources" aria-label="資源と人口">
+    <div><span>🌾 FOOD</span><strong id="food">100</strong></div>
+    <div><span>🪵 WOOD</span><strong id="wood">100</strong></div>
+    <div><span>🪙 GOLD</span><strong id="gold">0</strong></div>
+    <div><span>人口</span><strong id="population">3 / 10</strong></div>
+  </section>
+  <section class="command-bar" aria-label="ゲーム速度と地図操作">
+    <div class="speeds" role="group" aria-label="ゲーム速度">
+      <button type="button" data-speed="0" aria-pressed="false" title="Spaceでも切り替え">Ⅱ 停止</button>
+      <button type="button" data-speed="1" aria-pressed="true">1×</button>
+      <button type="button" data-speed="2" aria-pressed="false">2×</button>
+      <button type="button" data-speed="4" aria-pressed="false">4×</button>
+    </div>
+    <div class="map-controls"><button id="zoom-out" aria-label="地図を縮小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="地図を拡大">＋</button><button id="center" title="王城へ移動">⌂ 王城</button></div>
+  </section>
+  <div class="workspace">
+    <section class="map-panel" aria-label="王国の地図">
+      <div class="map-heading"><span><i class="live-dot"></i> <b id="status">開拓を開始しよう</b></span><small id="territory">領土 9 / 400</small></div>
+      <div class="tools" role="group" aria-label="マップ操作モード">
+        <button data-mode="explore" aria-pressed="true">⛏ 開拓</button>
+        <button data-mode="select" aria-pressed="false">⌖ 選択</button>
+        <button data-mode="flag" aria-pressed="false">⚑ 危険メモ</button>
+        <button data-mode="pan" aria-pressed="false">✥ 地図移動</button>
+      </div>
+      <div id="viewport" class="viewport" tabindex="0" aria-label="20×20地図。矢印キーでマス選択、Enterで操作">
+        <canvas id="map" width="1120" height="1120" aria-label="未探索の地を開拓する王国マップ"></canvas>
+        <div id="loading" class="loading">王国の地図を準備中…</div>
+      </div>
+      <p class="map-help" id="mode-help">未探索マスをタップして開拓予約。ドラッグでまとめて予約。</p>
+      <div class="keep-health"><span>王城 HP <b id="keep-hp">900 / 900</b></span><i><span id="keep-bar"></span></i><small id="army">Worker 3 ・ Soldier 0</small></div>
+    </section>
+    <aside class="sidebar">
+      <section class="panel tile-detail">
+        <p class="eyebrow">SELECTED TILE</p><h2 id="tile-title">王城</h2><p id="tile-description"></p>
+        <div id="tile-actions" class="tile-actions"></div>
+      </section>
+      <section class="panel">
+        <div class="section-heading"><h2>建築計画</h2><small>選んで平地をタップ</small></div>
+        <div id="build-list" class="build-list"></div>
+        <p id="build-help" class="muted">Workerが建築します。費用は予約時に確保。</p>
+      </section>
+      <section class="panel">
+        <div class="section-heading"><h2>開拓・建築予約</h2><b id="queue-count">0</b></div>
+        <div id="queue-list" class="queue-list"><p class="muted">予約はありません</p></div>
+      </section>
+    </aside>
+  </div>
+  <p id="notice" class="notice" role="status" aria-live="polite">Dragonの眠る場所を推測し、軍備を整えてから起こそう。</p>
+  <div class="footer-grid">
+    <section class="panel"><div class="section-heading"><h2>王国の記録</h2><small id="clock">0:00</small></div><ol id="log" class="event-log"></ol></section>
+    <details class="panel rules"><summary>遊び方・建物の効果</summary>
+      <p>中央の王城から領土を広げ、眠るDragonを開拓して討伐すると勝利。王城HPが0になると敗北です。</p>
+      <p><b>数字＝周囲8マスの初期危険度合計</b>。Goblin Campは1、Dragonは3。討伐後も数字は変わりません。数字は敵の残数ではありません。</p>
+      <p>開拓は上下左右でつながる領土から行います。奥のマスも予約できますが、道がつながるまで待機します。数字0でも周囲を自動で開けません。</p>
+      <p>Workerは予約作業を優先し、空いていると森林・食料・鉱山を採集します。資源マスを選んで全員の採集対象を指定できます。採集後は平地になります。</p>
+      <p>FarmはFoodを毎秒1.6生産。Houseは人口上限を5追加。BarracksはSoldierを育成。Towerは3マス以内の敵を自動攻撃します。</p>
+      <p>Windmill・Blacksmithは建築可能です。農場増産・兵士強化の隣接シナジーは次期追加予定で、このMVPでは発動しません。</p>
+      <p>宝箱はWood20・Food20・Gold35を獲得します。3択アップグレードは次期追加予定です。王城は毎秒Food・Woodを0.3ずつ供給します。</p>
+      <p>左クリック／タップ：現在モードの操作。右クリック：資源採集・集合命令。ドラッグ：開拓予約。地図移動モード：ドラッグで移動。Space：停止。停止中も予約できます。</p>
+      <p>開拓モードでも探索済みマスを選択できます。危険メモは推測したマスを旗で示すだけで、数字には影響しません。</p>
+    </details>
+  </div>
+  <div class="run-footer"><span id="seed"></span><button id="restart">↻ 新しい王国</button></div>
+</main>
+<dialog id="result"><div class="result-inner"><p class="eyebrow" id="result-label">KINGDOM</p><h2 id="result-title"></h2><p id="result-summary"></p><button id="again">新しい王国を始める</button><a href="../">ミニゲーム集へ</a></div></dialog>
+<dialog id="confirm"><div class="result-inner"><h2>新しい王国を始めますか？</h2><p>現在の領土・資源・予約はリセットされます。</p><button id="confirm-restart">新しい王国へ</button><button id="cancel-restart" class="secondary">今の王国を続ける</button></div></dialog>
+<script src="engine.js?v=1"></script><script src="game.js?v=1"></script>
+</body>
+</html>

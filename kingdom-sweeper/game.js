@@ -1,0 +1,127 @@
+(function () {
+  'use strict';
+  const E = window.KingdomEngine, $ = id => document.getElementById(id);
+  const canvas = $('map'), ctx = canvas.getContext('2d'), viewport = $('viewport'), CELL = 56;
+  const names = { grass: '平地', forest: '森林 / Wood', food: '食料 / Food', mine: '鉱山 / Gold', camp: 'ゴブリン拠点跡', lair: 'Dragonの巣' };
+  const assets = {}, assetNames = ['grass','forest','food','mine','camp','lair','chest','keep','farm','house','barracks','tower','windmill','blacksmith','worker','soldier','goblin','dragon'];
+  let world = E.create(), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1, previousSpeed = 1;
+  let pointer = null, last = performance.now(), uiElapsed = 0, lastEvent = null, actionKey = '', queueKey = '', resultShown = false, confirmSpeed = 1;
+  const costText = cost => Object.entries(cost).map(([key,n]) => `${key.toUpperCase()} ${n}`).join(' / ');
+  const timeText = n => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2,'0')}`;
+  function notice(message) { $('notice').textContent = message; }
+  function image(name,x,y,w,h) {
+    const img = assets[name];
+    if (!img) { ctx.fillStyle = name === 'grass' ? '#70a449' : '#b49b62'; ctx.fillRect(x,y,w,h); return; }
+    const scale = Math.min(w / img.width,h / img.height), width = img.width * scale, height = img.height * scale;
+    ctx.drawImage(img,x + (w-width)/2,y+h-height,width,height);
+  }
+  function draw() {
+    ctx.imageSmoothingEnabled = false;
+    for (const t of world.tiles) {
+      const x=t.x*CELL,y=t.y*CELL;
+      if (t.revealed) {
+        image('grass',x,y,CELL,CELL);
+        if (t.terrain !== 'grass') image(t.terrain,x+2,y+2,CELL-4,CELL-4);
+        if (t.building) image(t.building.kind,x+1,y,CELL-2,CELL);
+        ctx.fillStyle = '#0c251dda'; ctx.fillRect(x+3,y+3,20,20);
+        ctx.fillStyle = ['#d4ddbf','#a2ddff','#fff292','#ffa67f','#ff8795'][Math.min(4,t.clue)];
+        ctx.font='bold 16px sans-serif'; ctx.textAlign='center'; ctx.fillText(t.clue,x+13,y+19);
+      } else {
+        ctx.fillStyle=(t.x+t.y)%2 ? '#243e32' : '#294638'; ctx.fillRect(x,y,CELL,CELL);
+        ctx.fillStyle='#557c5d'; ctx.font='20px sans-serif'; ctx.textAlign='center'; ctx.fillText(t.flag ? '⚑' : '·',x+CELL/2,y+35);
+        if(t.flag) { ctx.fillStyle='#ffc166'; ctx.fillText('⚑',x+CELL/2,y+35); }
+      }
+      ctx.strokeStyle='#12322180';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);
+    }
+    for(const task of world.tasks) {
+      const t=world.tiles[task.tileId];ctx.strokeStyle=task.workerId ? '#bdf8f0' : '#729eae';ctx.lineWidth=2;ctx.setLineDash([5,4]);ctx.strokeRect(t.x*CELL+4,t.y*CELL+4,CELL-8,CELL-8);ctx.setLineDash([]);
+      ctx.fillStyle='#102c29df';ctx.fillRect(t.x*CELL+25,t.y*CELL+35,28,18);ctx.fillStyle='#e0ffec';ctx.font='12px sans-serif';ctx.fillText(task.kind==='build' ? '建' : '⛏',t.x*CELL+39,t.y*CELL+49);
+    }
+    const units=[...world.units,...world.enemies].sort((a,b)=>a.y-b.y);
+    for(const u of units) {
+      const size=u.kind==='dragon' ? 84 : u.kind==='worker' ? 30 : 38;
+      const offset=u.kind==='worker' ? (u.id%3-1)*7 : (u.id%3-1)*3;
+      const x=(u.x+.5)*CELL+offset,y=(u.y+.5)*CELL;
+      ctx.fillStyle='#071c1670';ctx.beginPath();ctx.ellipse(x,y+12,size*.3,6,0,0,Math.PI*2);ctx.fill();
+      image(u.kind,x-size/2,y-size*.65,size,size);
+      if(u.hp<u.maxHp || u.kind==='dragon') {ctx.fillStyle='#251b16';ctx.fillRect(x-18,y-size*.65-7,36,4);ctx.fillStyle=u.kind==='goblin'||u.kind==='dragon' ? '#fa7265' : '#a5e28c';ctx.fillRect(x-18,y-size*.65-7,36*Math.max(0,u.hp/u.maxHp),4);}
+    }
+    for(const effect of world.effects) {
+      const x=(effect.x+.5)*CELL,y=(effect.y+.5)*CELL;
+      if(effect.kind==='hit') {ctx.strokeStyle='#ffe69e';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo((effect.fromX+.5)*CELL,(effect.fromY+.5)*CELL);ctx.lineTo(x,y);ctx.stroke();ctx.fillStyle='#fff3ca';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();}
+      else {ctx.strokeStyle=`rgba(220,255,168,${effect.life})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,(1-effect.life)*40,0,Math.PI*2);ctx.stroke();}
+    }
+    const t=world.tiles[selected];ctx.strokeStyle='#ffe8a3';ctx.lineWidth=3;ctx.strokeRect(t.x*CELL+2,t.y*CELL+2,CELL-4,CELL-4);
+    const rally=world.tiles[world.rally];ctx.fillStyle='#82c8ff';ctx.font='14px sans-serif';ctx.fillText('⚑',rally.x*CELL+45,rally.y*CELL+52);
+  }
+  function setSpeed(speed) { if(world.result) return;world.speed=speed;if(speed) previousSpeed=speed;render(); }
+  function setMode(next,kind=null) {
+    mode=next;buildKind=kind;
+    document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
+    document.querySelectorAll('[data-build]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.build===kind)));
+    $('mode-help').textContent=({explore:'未探索マスをタップして開拓予約。ドラッグでまとめて予約。',select:'マスをタップして情報確認。資源採集・育成・集合を指示できます。',flag:'未探索マスをタップして危険メモを付ける／外す。',pan:'地図をドラッグして移動。＋／−で拡大・縮小できます。',build:`${kind ? E.BUILDINGS[kind].name : ''}：開拓済みの空き平地をタップ。`})[mode];
+  }
+  function button(action,label) {return `<button type="button" data-action="${action}">${label}</button>`;}
+  function render() {
+    for(const k of ['food','wood','gold']) $(k).textContent=Math.floor(world.resources[k]);
+    const pop=E.population(world);$('population').textContent=`${pop.used} / ${pop.cap}`;
+    const keep=world.tiles[world.keepId].building;$('keep-hp').textContent=`${Math.max(0,Math.ceil(keep.hp))} / ${keep.maxHp}`;$('keep-bar').style.width=`${Math.max(0,keep.hp/keep.maxHp)*100}%`;
+    $('army').textContent=`Worker ${world.units.filter(u=>u.kind==='worker').length} ・ Soldier ${world.units.filter(u=>u.kind==='soldier').length}`;
+    $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400`;
+    $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.speed===0 ? '停止中・予約できます' : world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : world.dragonAwake ? 'Dragonとの決戦' : '領土を広げ、軍備を整えよう';
+    $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
+    document.querySelectorAll('[data-speed]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.speed)===world.speed)));
+    document.querySelectorAll('[data-build]').forEach(b=>b.classList.toggle('unaffordable',!E.canPay(world,E.BUILDINGS[b.dataset.build].cost)));
+    const t=world.tiles[selected], b=t.building, task=world.tasks.find(q=>q.tileId===selected);
+    $('tile-title').textContent=`${b ? E.BUILDINGS[b.kind].name : t.revealed ? names[t.terrain] : '未探索'} (${t.x+1}, ${t.y+1})`;
+    $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 危険メモあり。' : ''}`;
+    let actions='';
+    if(!t.revealed) actions+=button('explore',t.flag ? '旗を外して開拓予約' : '開拓予約')+button('flag',t.flag ? '旗を外す' : '危険メモ');
+    else {
+      if(b?.kind==='keep') actions+=button('worker','Worker育成 / FOOD 25');
+      if(b?.kind==='barracks') actions+=button('soldier','Soldier育成 / FOOD 30・WOOD 15');
+      if(['forest','food','mine'].includes(t.terrain)) actions+=button('gather','全Workerでこの資源を採集');
+      actions+=button('rally','兵士の集合地点にする');
+    }
+    actions+=button('auto','Workerの採集を自動に戻す');
+    if(task) actions+=button('cancel','この予約を取り消す');
+    if(actions!==actionKey){$('tile-actions').innerHTML=actions;actionKey=actions;}
+    $('queue-count').textContent=world.tasks.length;
+    const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : '開拓'} (${t.x+1},${t.y+1}) <small>${q.workerId ? `${Math.ceil(q.remaining)}秒` : '待機'}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
+    if(queues!==queueKey){$('queue-list').innerHTML=queues;queueKey=queues;}
+    if(lastEvent!==world.events.at(-1)) {lastEvent=world.events.at(-1);notice(lastEvent.text);$('log').replaceChildren(...world.events.slice(-6).reverse().map(e=>{const li=document.createElement('li');li.textContent=`${timeText(e.time)} ${e.text}`;return li;}));}
+    if(world.result&&!resultShown){resultShown=true;$('result-label').textContent=world.result==='victory' ? 'VICTORY' : 'DEFEAT';$('result-title').textContent=world.result==='victory' ? '王国に平和が戻った！' : '王城が陥落しました';$('result-summary').textContent=`経過 ${timeText(world.time)} ・ 討伐 ${world.kills}体 ・ 領土 ${world.tiles.filter(t=>t.revealed).length}マス`;$('result').showModal();}
+  }
+  function center(id=world.keepId) {const t=world.tiles[id];viewport.scrollLeft=(t.x+.5)*CELL*zoom-viewport.clientWidth/2;viewport.scrollTop=(t.y+.5)*CELL*zoom-viewport.clientHeight/2;}
+  function setZoom(next) {const cx=(viewport.scrollLeft+viewport.clientWidth/2)/zoom,cy=(viewport.scrollTop+viewport.clientHeight/2)/zoom;zoom=Math.max(.6,Math.min(1.8,next));canvas.style.width=`${1120*zoom}px`;canvas.style.height=`${1120*zoom}px`;$('zoom-label').textContent=`${Math.round(zoom*100)}%`;viewport.scrollLeft=cx*zoom-viewport.clientWidth/2;viewport.scrollTop=cy*zoom-viewport.clientHeight/2;}
+  function point(event) {const r=canvas.getBoundingClientRect(),x=Math.floor((event.clientX-r.left)/r.width*20),y=Math.floor((event.clientY-r.top)/r.height*20);return x>=0&&y>=0&&x<20&&y<20 ? E.index(x,y) : null;}
+  function operate(id) {
+    selected=id;if(world.result) return;
+    const t=world.tiles[id];
+    if(mode==='build'){const r=E.queueBuild(world,id,buildKind);notice(r.ok ? '建築を予約しました。' : r.reason);}
+    else if(mode==='flag'&&!t.revealed){t.flag=!t.flag;notice(t.flag ? '危険メモを付けました。開拓する場合は旗を外してください。' : '危険メモを外しました。');}
+    else if(mode==='explore'&&!t.revealed){notice(t.flag ? '危険メモのあるマスです。先に旗を外してください。' : E.queueExplore(world,id) ? '開拓を予約しました。' : 'すでに開拓予約済みです。');}
+    render();
+  }
+  canvas.addEventListener('pointerdown',e=>{if(e.button!==0)return;const id=point(e);if(id===null)return;pointer={id:e.pointerId,x:e.clientX,y:e.clientY,left:viewport.scrollLeft,top:viewport.scrollTop,start:id,last:id,cells:new Set([id])};canvas.setPointerCapture(e.pointerId);e.preventDefault();});
+  canvas.addEventListener('pointermove',e=>{if(!pointer||pointer.id!==e.pointerId)return;if(mode==='pan'){viewport.scrollLeft=pointer.left-e.clientX+pointer.x;viewport.scrollTop=pointer.top-e.clientY+pointer.y;return;}const id=point(e);if(id===null)return;if(mode==='explore'){const a=E.xy(pointer.last),b=E.xy(id),steps=Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));for(let i=1;i<=steps;i++)pointer.cells.add(E.index(Math.round(a.x+(b.x-a.x)*i/steps),Math.round(a.y+(b.y-a.y)*i/steps)));}pointer.last=id;});
+  canvas.addEventListener('pointerup',e=>{if(!pointer||pointer.id!==e.pointerId)return;const p=pointer;pointer=null;if(mode==='pan')return;if(mode==='explore'&&p.cells.size>1){let count=0;for(const id of p.cells)if(!world.tiles[id].flag&&E.queueExplore(world,id))count++;selected=p.last;render();notice(`${count}マスを開拓予約しました。奥のマスは道がつながるまで待機します。`);}else operate(p.last);});
+  canvas.addEventListener('pointercancel',()=>{pointer=null;});
+  canvas.addEventListener('contextmenu',e=>{e.preventDefault();const id=point(e);if(id===null||world.result)return;selected=id;const t=world.tiles[id];if(!t.revealed){if(!t.flag)E.queueExplore(world,id);}else if(['forest','food','mine'].includes(t.terrain)){world.workerFocus=t.terrain;notice('全Workerの採集対象を変更しました。');}else{world.rally=id;notice('兵士の集合地点を変更しました。');}render();});
+  $('tile-actions').addEventListener('click',e=>{const action=e.target.closest('[data-action]')?.dataset.action;if(!action||world.result)return;const t=world.tiles[selected];if(action==='worker'||action==='soldier'){const r=E.train(world,selected,action);notice(r.ok ? '育成を予約しました。' : r.reason);}if(action==='explore'){t.flag=false;E.queueExplore(world,selected);}if(action==='flag')t.flag=!t.flag;if(action==='gather'){world.workerFocus=t.terrain;notice('全Workerの採集対象を変更しました。');}if(action==='rally'){world.rally=selected;notice('兵士の集合地点を変更しました。');}if(action==='auto'){world.workerFocus=null;notice('採集を自動分担に戻しました。');}if(action==='cancel')E.cancelTask(world,selected);render();});
+  $('queue-list').addEventListener('click',e=>{const locate=e.target.closest('[data-locate]'),cancel=e.target.closest('[data-cancel]');if(locate){selected=Number(locate.dataset.locate);center(selected);}if(cancel)E.cancelTask(world,Number(cancel.dataset.cancel));render();});
+  for(const [kind,spec] of Object.entries(E.BUILDINGS))if(kind!=='keep'){const b=document.createElement('button');b.type='button';b.dataset.build=kind;b.setAttribute('aria-pressed','false');b.innerHTML=`<img src="assets/${kind}.png" alt=""><span>${spec.name.split(' / ')[1]}<small>${costText(spec.cost)}</small></span>`;b.addEventListener('click',()=>setMode('build',kind));$('build-list').append(b);}
+  document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+  document.querySelectorAll('[data-speed]').forEach(b=>b.addEventListener('click',()=>setSpeed(Number(b.dataset.speed))));
+  $('zoom-in').addEventListener('click',()=>setZoom(zoom+.2));$('zoom-out').addEventListener('click',()=>setZoom(zoom-.2));$('center').addEventListener('click',()=>{selected=world.keepId;center();render();});
+  document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.closest('button,input,select,textarea,dialog')){e.preventDefault();setSpeed(world.speed ? 0 : previousSpeed);}if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}}});
+  function restart(){world=E.create();selected=world.keepId;resultShown=false;lastEvent=null;actionKey='';queueKey='';pointer=null;setMode('explore');setSpeed(1);center();render();}
+  $('restart').addEventListener('click',()=>{confirmSpeed=world.speed;world.speed=0;$('confirm').showModal();render();});
+  $('cancel-restart').addEventListener('click',()=>{$('confirm').close();setSpeed(confirmSpeed);});
+  $('confirm').addEventListener('cancel',()=>setSpeed(confirmSpeed));
+  $('confirm-restart').addEventListener('click',()=>{$('confirm').close();restart();});
+  $('again').addEventListener('click',()=>{$('result').close();restart();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){world.speed=0;render();}});
+  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;let remaining=elapsed*world.speed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);remaining-=dt;}uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}draw();requestAnimationFrame(frame);}
+  Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(results=>{$('loading').hidden=true;center();render();if(results.some(ok=>!ok))notice('一部の画像が読み込めませんでした。再読み込みしてください。');requestAnimationFrame(frame);});
+})();
