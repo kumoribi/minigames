@@ -11,7 +11,7 @@
   try { firstHelp = localStorage.getItem(helpSeenKey) !== 'seen'; } catch (_) { /* Storage may be unavailable in private/file contexts. */ }
   if (firstHelp) world.speed = 0;
   function openHelp(initial = false) {
-    if ($('help').open || world.result) return;
+    if ($('help').open || world.result || world.pendingRewards.length) return;
     helpSpeed = initial ? 0 : world.speed;
     world.speed = 0; pointer = null; render(); $('help').showModal();
   }
@@ -48,6 +48,17 @@
       }
       ctx.strokeStyle='#12322180';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,CELL-1,CELL-1);
     }
+    const focus = world.tiles[selected], rangeKind = buildKind || focus.building?.kind;
+    if (['windmill','blacksmith','farm','barracks'].includes(rangeKind)) {
+      const diagonal = rangeKind === 'windmill' || rangeKind === 'farm';
+      for (const id of E.neighbors(selected, diagonal)) {
+        const t = world.tiles[id];
+        ctx.fillStyle = diagonal ? '#eecb5840' : '#81caff40'; ctx.fillRect(t.x*CELL+2,t.y*CELL+2,CELL-4,CELL-4);
+        ctx.strokeStyle = diagonal ? '#eecb58' : '#81caff'; ctx.lineWidth = 1; ctx.strokeRect(t.x*CELL+2,t.y*CELL+2,CELL-4,CELL-4);
+      }
+    } else if (rangeKind === 'tower') {
+      ctx.strokeStyle='#86d2ff';ctx.lineWidth=2;ctx.setLineDash([6,5]);ctx.beginPath();ctx.arc((focus.x+.5)*CELL,(focus.y+.5)*CELL,E.towerRange(world)*CELL,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+    }
     for(const task of world.tasks) {
       const t=world.tiles[task.tileId];ctx.strokeStyle=task.workerId ? '#bdf8f0' : '#729eae';ctx.lineWidth=2;ctx.setLineDash([5,4]);ctx.strokeRect(t.x*CELL+4,t.y*CELL+4,CELL-8,CELL-8);ctx.setLineDash([]);
       ctx.fillStyle='#102c29df';ctx.fillRect(t.x*CELL+25,t.y*CELL+35,28,18);ctx.fillStyle='#e0ffec';ctx.font='12px sans-serif';ctx.fillText(task.kind==='build' ? '建' : '⛏',t.x*CELL+39,t.y*CELL+49);
@@ -77,19 +88,47 @@
     $('mode-help').textContent=({explore:'未探索マスをタップして開拓予約。ドラッグでまとめて予約。',select:'マスをタップして情報確認。資源採集・育成・集合を指示できます。',flag:'未探索マスをタップして危険メモを付ける／外す。',pan:'地図をドラッグして移動。＋／−で拡大・縮小できます。',build:`${kind ? E.BUILDINGS[kind].name : ''}：開拓済みの空き平地をタップ。`})[mode];
   }
   function button(action,label) {return `<button type="button" data-action="${action}">${label}</button>`;}
+  function renderReward() {
+    const reward=world.pendingRewards[0];
+    if (!reward || world.result) { if($('treasure').open)$('treasure').close();return; }
+    if ($('help').open || $('confirm').open) return;
+    if ($('upgrade-choices').dataset.rewardId!==String(reward.id)) {
+      $('upgrade-choices').dataset.rewardId=reward.id;
+      $('upgrade-choices').replaceChildren(...Object.entries(E.UPGRADES).map(([kind,spec])=>{
+        const b=document.createElement('button');b.type='button';b.dataset.upgrade=kind;b.dataset.rewardId=reward.id;
+        const title=document.createElement('strong'),detail=document.createElement('span');title.textContent=spec.name;detail.textContent=`${spec.description} ・ 現在${world.upgrades[kind]}回取得`;b.append(title,detail);return b;
+      }));
+    }
+    if (!$('treasure').open) { pointer=null;$('treasure').showModal(); }
+  }
+  $('treasure').addEventListener('cancel',e=>e.preventDefault());
+  $('upgrade-choices').addEventListener('click',e=>{
+    const b=e.target.closest('[data-upgrade]');if(!b)return;
+    if(E.chooseUpgrade(world,Number(b.dataset.rewardId),b.dataset.upgrade)){render();notice('王国強化を取得しました。');}
+  });
   function render() {
     for(const k of ['food','wood','gold']) $(k).textContent=Math.floor(world.resources[k]);
     const pop=E.population(world);$('population').textContent=`${pop.used} / ${pop.cap}`;
     const keep=world.tiles[world.keepId].building;$('keep-hp').textContent=`${Math.max(0,Math.ceil(keep.hp))} / ${keep.maxHp}`;$('keep-bar').style.width=`${Math.max(0,keep.hp/keep.maxHp)*100}%`;
     $('army').textContent=`Worker ${world.units.filter(u=>u.kind==='worker').length} ・ Soldier ${world.units.filter(u=>u.kind==='soldier').length}`;
     $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400`;
-    $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.speed===0 ? '停止中・予約できます' : world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : world.dragonAwake ? 'Dragonとの決戦' : '領土を広げ、軍備を整えよう';
+    $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.pendingRewards.length ? '宝箱の強化を選択中・停止' : world.speed===0 ? '停止中・予約できます' : world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : world.dragonAwake ? 'Dragonとの決戦' : '領土を広げ、軍備を整えよう';
     $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
     document.querySelectorAll('[data-speed]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.speed)===world.speed)));
     document.querySelectorAll('[data-build]').forEach(b=>b.classList.toggle('unaffordable',!E.canPay(world,E.BUILDINGS[b.dataset.build].cost)));
     const t=world.tiles[selected], b=t.building, task=world.tasks.find(q=>q.tileId===selected);
     $('tile-title').textContent=`${b ? E.BUILDINGS[b.kind].name : t.revealed ? names[t.terrain] : '未探索'} (${t.x+1}, ${t.y+1})`;
     $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 危険メモあり。' : ''}`;
+    const k=buildKind || b?.kind;
+    const forged=E.hasNeighbor(world,selected,'blacksmith',false);
+    $('building-effects').textContent=({
+      farm:`農場生産 ${E.farmRate(world,selected).toFixed(2)} FOOD/秒。黄色枠：風車の隣接判定（周囲8マス）。${E.hasNeighbor(world,selected,'windmill',true) ? '風車効果ON（×1.25）。' : '風車効果なし。'}`,
+      windmill:'黄色枠内の農場を25%増産。風車を複数隣接させても重複しません。',
+      barracks:`青枠：鍛冶屋の隣接判定（上下左右）。${forged ? '効果ON：育成完了時の兵士が攻撃・HP×1.2。' : '効果なし：通常兵士を育成。'}既に育成済みの兵士は変わりません。`,
+      blacksmith:'青枠内の兵舎から育成完了した兵士の攻撃・HPを20%強化。複数の鍛冶屋でも重複しません。',
+      tower:`青い円：射程${E.towerRange(world).toFixed(2)}マス。範囲内の敵を自動攻撃。`
+    })[k] || '';
+    $('kingdom-upgrades').textContent=`農場 +${world.upgrades.farm*25}% ・ 兵士攻撃 +${world.upgrades.soldier*20}% ・ 塔射程 +${world.upgrades.tower*30}%`;
     let actions='';
     if(!t.revealed) actions+=button('explore',t.flag ? '旗を外して開拓予約' : '開拓予約')+button('flag',t.flag ? '旗を外す' : '危険メモ');
     else {
@@ -105,6 +144,7 @@
     const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : '開拓'} (${t.x+1},${t.y+1}) <small>${q.workerId ? `${Math.ceil(q.remaining)}秒` : '待機'}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
     if(queues!==queueKey){$('queue-list').innerHTML=queues;queueKey=queues;}
     if(lastEvent!==world.events.at(-1)) {lastEvent=world.events.at(-1);notice(lastEvent.text);$('log').replaceChildren(...world.events.slice(-6).reverse().map(e=>{const li=document.createElement('li');li.textContent=`${timeText(e.time)} ${e.text}`;return li;}));}
+    renderReward();
     if(world.result&&!resultShown){resultShown=true;$('result-label').textContent=world.result==='victory' ? 'VICTORY' : 'DEFEAT';$('result-title').textContent=world.result==='victory' ? '王国に平和が戻った！' : '王城が陥落しました';$('result-summary').textContent=`経過 ${timeText(world.time)} ・ 討伐 ${world.kills}体 ・ 領土 ${world.tiles.filter(t=>t.revealed).length}マス`;$('result').showModal();}
   }
   function center(id=world.keepId) {const t=world.tiles[id];viewport.scrollLeft=(t.x+.5)*CELL*zoom-viewport.clientWidth/2;viewport.scrollTop=(t.y+.5)*CELL*zoom-viewport.clientHeight/2;}
@@ -130,13 +170,13 @@
   document.querySelectorAll('[data-speed]').forEach(b=>b.addEventListener('click',()=>setSpeed(Number(b.dataset.speed))));
   $('zoom-in').addEventListener('click',()=>setZoom(zoom+.2));$('zoom-out').addEventListener('click',()=>setZoom(zoom-.2));$('center').addEventListener('click',()=>{selected=world.keepId;center();render();});
   document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.closest('button,input,select,textarea,dialog')){e.preventDefault();setSpeed(world.speed ? 0 : previousSpeed);}if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}}});
-  function restart(){world=E.create();selected=world.keepId;resultShown=false;lastEvent=null;actionKey='';queueKey='';pointer=null;setMode('explore');setSpeed(1);center();render();}
+  function restart(){world=E.create();selected=world.keepId;resultShown=false;lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');setSpeed(1);center();render();}
   $('restart').addEventListener('click',()=>{confirmSpeed=world.speed;world.speed=0;$('confirm').showModal();render();});
   $('cancel-restart').addEventListener('click',()=>{$('confirm').close();setSpeed(confirmSpeed);});
   $('confirm').addEventListener('cancel',()=>setSpeed(confirmSpeed));
   $('confirm-restart').addEventListener('click',()=>{$('confirm').close();restart();});
   $('again').addEventListener('click',()=>{$('result').close();restart();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden){world.speed=0;if($('help').open)helpSpeed=0;render();}});
-  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;let remaining=elapsed*world.speed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);remaining-=dt;}uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}draw();requestAnimationFrame(frame);}
+  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;let remaining=elapsed*world.speed;while(remaining>0&&!world.result&&!world.pendingRewards.length){const dt=Math.min(.05,remaining);E.tick(world,dt);remaining-=dt;}uiElapsed+=elapsed;if(uiElapsed>.2||world.pendingRewards.length&&!$('treasure').open){render();uiElapsed=0;}draw();requestAnimationFrame(frame);}
   Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(results=>{$('loading').hidden=true;center();render();if(firstHelp)openHelp(true);if(results.some(ok=>!ok))notice('一部の画像が読み込めませんでした。再読み込みしてください。');requestAnimationFrame(frame);});
 })();

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
@@ -50,6 +50,7 @@
     <aside class="sidebar">
       <section class="panel tile-detail">
         <p class="eyebrow">SELECTED TILE</p><h2 id="tile-title">王城</h2><p id="tile-description"></p>
+        <p id="building-effects" class="effect-info" aria-live="polite"></p>
         <div id="tile-actions" class="tile-actions"></div>
       </section>
       <section class="panel">
@@ -63,6 +64,7 @@
       </section>
     </aside>
   </div>
+  <section class="panel upgrade-panel"><h2>この王国の強化</h2><p id="kingdom-upgrades">農場 +0% ・ 兵士攻撃 +0% ・ 塔射程 +0%</p><small>宝箱で獲得。同じ強化は基本値への加算、建物シナジーとは乗算。新しい王国ではリセット。</small></section>
   <p id="notice" class="notice" role="status" aria-live="polite">Dragonの眠る場所を推測し、軍備を整えてから起こそう。</p>
   <div class="footer-grid">
     <section class="panel"><div class="section-heading"><h2>王国の記録</h2><small id="clock">0:00</small></div><ol id="log" class="event-log"></ol></section>
@@ -72,8 +74,8 @@
       <p>開拓は上下左右でつながる領土から行います。奥のマスも予約できますが、道がつながるまで待機します。数字0でも周囲を自動で開けません。</p>
       <p>Workerは予約作業を優先し、空いていると森林・食料・鉱山を採集します。資源マスを選んで全員の採集対象を指定できます。採集後は平地になります。</p>
       <p>FarmはFoodを毎秒1.6生産。Houseは人口上限を5追加。BarracksはSoldierを育成。Towerは3マス以内の敵を自動攻撃します。</p>
-      <p>Windmill・Blacksmithは建築可能です。農場増産・兵士強化の隣接シナジーは次期追加予定で、このMVPでは発動しません。</p>
-      <p>宝箱はWood20・Food20・Gold35を獲得します。3択アップグレードは次期追加予定です。王城は毎秒Food・Woodを0.3ずつ供給します。</p>
+      <p>風車は周囲8マスの農場生産を25%増加。鍛冶屋は上下左右の兵舎で育成完了した兵士の攻撃・HPを20%強化します。複数隣接しても同種の効果は重複せず、鍛冶屋は既存兵士には適用されません。</p>
+      <p>宝箱はWood20・Food20・Gold35と3択強化を獲得。農場生産+25%、全兵士攻撃+20%、塔射程+30%から1つ選択します。選択中は停止。同じ強化は基本値への加算で累積し、風車・鍛冶屋とは乗算します。王城は毎秒Food・Woodを0.3ずつ供給します。</p>
       <p>左クリック／タップ：現在モードの操作。右クリック：資源採集・集合命令。ドラッグ：開拓予約。地図移動モード：ドラッグで移動。Space：停止。停止中も予約できます。</p>
       <p>開拓モードでも探索済みマスを選択できます。危険メモは推測したマスを旗で示すだけで、数字には影響しません。</p>
     </details>
@@ -103,11 +105,16 @@
     <dl><dt>建築できない</dt><dd>開拓済みの空き平地を選びます。森・鉱山・食料は採集し切ると平地になります。資源不足・別の予約・近くの敵も確認してください。</dd><dt>予約が「待機」のまま</dt><dd>上下左右の道がつながっていないか、Workerが別の作業中です。作業員が敵から退避することもあります。不要な予約は「×」で取消できます。</dd><dt>資源が増えない</dt><dd>開拓や建築を減らし、Workerに採集時間を与えます。資源マスを選択し「全Workerでこの資源を採集」で集中採集。「Workerの採集を自動に戻す」で分担に戻せます。</dd><dt>兵士を増やせない</dt><dd>FOOD・WOOD、人口上限、兵舎の育成待ち（最大5体）を確認。人口には育成予約も含まれます。</dd><dt>タブに戻ると止まっている</dt><dd>画面を離れると自動停止します。「1×」などで再開してください。</dd></dl>
     <h3>スマホ・PCの操作</h3>
     <p>「地図移動」でドラッグ、「＋／−」で拡縮、「⌂ 王城」で中央へ戻ります。「開拓」と「地図移動」を切り替えて使ってください。PCでは右クリックで採集・集合命令、Spaceで停止切替もできます。</p>
+    <h3>建物を組み合わせて強くする</h3>
+    <p>農場の周囲8マスに風車を建てると、生産量が25%増えます。兵舎の上下左右に鍛冶屋を建てると、その後育成完了した兵士の攻撃・HPが20%増えます。どちらも複数隣接させても重複しません。選択した建物の黄色枠は風車、青枠は鍛冶屋の判定範囲です。監視塔を選ぶと射程が青い円で表示されます。</p>
+    <h3>宝箱の3択強化</h3>
+    <p>宝箱を開拓すると資源に加えて「農場生産+25%」「全兵士攻撃+20%」「塔射程+30%」から1つ選べます。選んだ強化はその王国で有効。既存の農場・兵士・塔にも適用されます。同じ強化は基本値への加算（農場2回なら+50%）で累積し、建物シナジーとは乗算します。選択中は戦闘も停止し、選択後は元の速度で進みます（停止中や別タブへ移動した場合は停止維持）。「この王国の強化」で取得状況を確認できます。</p>
     <h3>現在の制限</h3>
-    <p>風車・鍛冶屋は建築できますが、隣接による増産・兵士強化はまだありません。今は農場・民家・兵舎・監視塔を優先してください。宝箱は資源報酬のみ。途中保存はなく、再読み込みや「新しい王国」でリセットされます。</p>
+    <p>途中保存はなく、再読み込みや「新しい王国」で領土・資源・強化がリセットされます。新しい地形・敵種類や、次の王国へ持ち越す永続強化はまだありません。</p>
   </div>
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
-<script src="engine.js?v=1"></script><script src="game.js?v=2"></script>
+<dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>強化を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>同じ強化は加算で累積。この王国だけで有効。</small></div></dialog>
+<script src="engine.js?v=2"></script><script src="game.js?v=3"></script>
 </body>
 </html>

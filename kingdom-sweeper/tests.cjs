@@ -65,4 +65,45 @@ test('Tower attacks only within 3 tiles',()=>{
   const enemy={id:99,kind:'goblin',x:9,y:7,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];advance(s,.1);assert.equal(enemy.hp,86);
   enemy.x=0;enemy.y=0;const hp=enemy.hp;advance(s,2);assert.equal(enemy.hp,hp);
 });
+const fixtureBuilding = kind => ({kind,hp:E.BUILDINGS[kind].hp,maxHp:E.BUILDINGS[kind].hp,train:[],cooldown:0});
+function chest(s,id) {s.tiles[id].revealed=false;s.tiles[id].danger=0;s.tiles[id].terrain='chest';E.reveal(s,id);return s.pendingRewards.at(-1).id;}
+test('Windmill: eight neighbours, no stacking, destroyed/outside excluded',()=>{
+  const s=E.create(10),id=E.index(10,10);s.tiles[id].building=fixtureBuilding('farm');
+  assert.equal(E.farmRate(s,id),1.6);
+  s.tiles[E.index(9,9)].building=fixtureBuilding('windmill');assert.equal(E.farmRate(s,id),2);
+  s.tiles[E.index(11,10)].building=fixtureBuilding('windmill');assert.equal(E.farmRate(s,id),2);
+  s.tiles[E.index(9,9)].building.hp=0;s.tiles[E.index(11,10)].building.hp=0;
+  s.tiles[E.index(12,10)].building=fixtureBuilding('windmill');assert.equal(E.farmRate(s,id),1.6);
+});
+test('Blacksmith: orthogonal only, birth-time bonus, no retroactivity/stacking',()=>{
+  const s=E.create(11),id=E.index(9,9);s.tiles[id].building=fixtureBuilding('barracks');s.resources={food:1000,wood:1000,gold:1000};
+  E.train(s,id,'soldier');advance(s,8);const normal=s.units.find(u=>u.kind==='soldier');assert.equal(normal.attack,16);
+  s.tiles[E.index(8,8)].building=fixtureBuilding('blacksmith');E.train(s,id,'soldier');advance(s,8);assert.equal(s.units.filter(u=>u.kind==='soldier').at(-1).attack,16);
+  E.train(s,id,'soldier');s.tiles[E.index(9,8)].building=fixtureBuilding('blacksmith');s.tiles[E.index(8,9)].building=fixtureBuilding('blacksmith');advance(s,8);
+  const forged=s.units.filter(u=>u.kind==='soldier').at(-1);assert.equal(forged.attack,19.2);assert.equal(forged.maxHp,132);assert.equal(normal.attack,16);
+});
+test('Treasure: freezes simulation, exact-once selection, queues multiple rewards',()=>{
+  const s=E.create(12),id=E.index(8,10),before={...s.resources},reward=chest(s,id);
+  assert.deepEqual(s.resources,{wood:before.wood+20,food:before.food+20,gold:before.gold+35});
+  const time=s.time,hp=s.tiles[s.keepId].building.hp;advance(s,10);assert.equal(s.time,time);assert.equal(s.tiles[s.keepId].building.hp,hp);
+  const next=chest(s,E.index(8,9));assert(!E.chooseUpgrade(s,next,'farm'));assert(!E.chooseUpgrade(s,reward,'invalid'));
+  assert(E.chooseUpgrade(s,reward,'farm'));assert(!E.chooseUpgrade(s,reward,'tower'));advance(s,2);assert.equal(s.time,time);
+  assert(E.chooseUpgrade(s,next,'farm'));assert(Math.abs(E.farmRate(s,s.keepId)-2.4)<1e-9);advance(s,1);assert(s.time>time);
+  E.reveal(s,id);assert.equal(s.pendingRewards.length,0);
+});
+test('Upgrade arithmetic: existing soldiers, forged soldiers, farm synergy, reset',()=>{
+  const s=E.create(13),id=s.keepId;s.tiles[E.index(9,9)].building=fixtureBuilding('windmill');
+  const r=chest(s,0);E.chooseUpgrade(s,r,'farm');assert.equal(E.farmRate(s,id),2.5);
+  for(let i=0;i<2;i++)E.chooseUpgrade(s,chest(s,1+i),'soldier');
+  assert.equal(E.soldierAttack(s,{attack:16}),22.4);assert(Math.abs(E.soldierAttack(s,{attack:19.2})-26.88)<1e-9);
+  E.chooseUpgrade(s,chest(s,3),'tower');assert(Math.abs(E.towerRange(s)-3.9)<1e-9);
+  assert.deepEqual(E.create(13).upgrades,{farm:0,soldier:0,tower:0});
+});
+test('Tower upgraded range affects combat, Soldier upgrade affects existing combat',()=>{
+  const s=E.create(14);s.units=[];const id=E.index(9,9);s.tiles[id].building=fixtureBuilding('tower');
+  const enemy={id:99,kind:'goblin',x:9,y:5.5,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];
+  advance(s,.1);assert.equal(enemy.hp,100);E.chooseUpgrade(s,chest(s,0),'tower');advance(s,.1);assert.equal(enemy.hp,86);
+  const u={id:111,kind:'soldier',x:9,y:5.5,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
+  E.chooseUpgrade(s,chest(s,1),'soldier');const hp=enemy.hp;advance(s,.05);assert(Math.abs(hp-enemy.hp-19.2)<1e-9);
+});
 console.log(`${checks} scenarios passed.`);
