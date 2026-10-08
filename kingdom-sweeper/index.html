@@ -24,8 +24,8 @@
   </section>
   <section class="command-bar" aria-label="ゲーム速度と地図操作">
     <div class="speeds" role="group" aria-label="ゲーム速度">
-      <button type="button" data-speed="0" aria-pressed="false" title="Spaceでも切り替え">Ⅱ 停止</button>
-      <button type="button" data-speed="1" aria-pressed="true">1×</button>
+      <button type="button" data-speed="0" aria-pressed="true" title="Spaceでも切り替え">Ⅱ 停止</button>
+      <button type="button" data-speed="1" aria-pressed="false">1×</button>
       <button type="button" data-speed="2" aria-pressed="false">2×</button>
       <button type="button" data-speed="4" aria-pressed="false">4×</button>
     </div>
@@ -98,7 +98,7 @@
     <p class="help-goal"><b>目標：Dragonを討伐する</b><br>王城（Keep）のHPが0になると敗北。敵を避け続けるのではなく、軍備を整えてから敵のマスを開けるゲームです。</p>
     <h3>まずは、この順番で遊ぼう</h3>
     <ol class="help-steps">
-      <li><b>「停止」で落ち着いて計画する</b><p>停止中でも建築・開拓・育成を予約できます。初回はヘルプを閉じても停止したままなので、準備ができたら「1×」を押してください。</p></li>
+      <li><b>停止状態で落ち着いて計画する</b><p>ゲーム開始時と新しい王国は、必ず停止状態から始まります。停止中でも建築・開拓・育成を予約できます。準備ができたら「1×」を押してください。</p></li>
       <li><b>農場と兵舎を建てる</b><p>「建築計画」の「農場」を選び、地図の<b>開拓済みで何もない草地</b>をタップ。同様に「兵舎」を別の草地に予約します。最初の費用は合計WOOD 80・FOOD 20。「1×」で進めるとWorker（作業員）が建築します。空き草地がなければ、外側を少し開拓するか資源を採集し切りましょう。</p><p>スマホでは画面下の「建築」で建物を選び、地図をタップ。「軍備」で兵舎（未建設なら王城）の育成操作を開けます。</p></li>
       <li><b>完成した兵舎で兵士を育てる</b><p>「選択」モードで地図の兵舎をタップし、選択情報の「Soldier育成」を押します。1体につきFOOD 30・WOOD 15、育成に7秒かかります。まず数体をそろえましょう。兵士は自動で戦います。</p></li>
       <li><b>数字を読みながら領土を広げる</b><p>「開拓」モードで暗い未探索マスをタップ。Workerが開拓します。最初は領土の上下左右に接するマスから少しずつ。ドラッグでまとめて予約できますが、序盤に大量予約するとWorkerが採集できなくなります。</p></li>
@@ -125,6 +125,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>強化を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>同じ強化は加算で累積。この王国だけで有効。</small></div></dialog>
-<script src="engine.js?v=3"></script><script src="game.js?v=4"></script>
+<script src="engine.js?v=3"></script><script src="game.js?v=5"></script>
 </body>
 </html>

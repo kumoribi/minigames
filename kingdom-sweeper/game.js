@@ -37,7 +37,7 @@
   const helpSeenKey = 'kingdom-sweeper-help-v1';
   let firstHelp = true, helpSpeed = 0;
   try { firstHelp = localStorage.getItem(helpSeenKey) !== 'seen'; } catch (_) { /* Storage may be unavailable in private/file contexts. */ }
-  if (firstHelp) world.speed = 0;
+  world.speed = 0;
   function openHelp(initial = false) {
     if ($('help').open || world.result || world.pendingRewards.length) return;
     helpSpeed = initial ? 0 : world.speed;
@@ -233,7 +233,7 @@
   document.querySelectorAll('[data-speed]').forEach(b=>b.addEventListener('click',()=>setSpeed(Number(b.dataset.speed))));
   $('zoom-in').addEventListener('click',()=>setZoom(zoom+.2));$('zoom-out').addEventListener('click',()=>setZoom(zoom-.2));$('center').addEventListener('click',()=>{selected=world.keepId;center();render();});
   document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.closest('button,input,select,textarea,dialog')){e.preventDefault();setSpeed(world.speed ? 0 : previousSpeed);}if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}}});
-  function restart(){world=E.create();selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;visualEffects=[];seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');setSpeed(1);center();render();}
+  function restart(){world=E.create();selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;visualEffects=[];seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';previousSpeed=1;setMode('explore');setSpeed(0);center();render();}
   $('restart').addEventListener('click',()=>{confirmSpeed=world.speed;world.speed=0;$('confirm').showModal();render();});
   $('cancel-restart').addEventListener('click',()=>{$('confirm').close();setSpeed(confirmSpeed);});
   $('confirm').addEventListener('cancel',()=>setSpeed(confirmSpeed));
