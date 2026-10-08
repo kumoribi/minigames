@@ -6,12 +6,12 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="style.css?v=2">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
 <main>
-  <header><a href="../">‹ ミニゲーム集</a><span class="edition">探索 × 王国づくり</span></header>
+  <header><a href="../">‹ ミニゲーム集</a><button id="help-open" type="button">？ 遊び方</button></header>
   <section class="hero">
     <div><p class="eyebrow">KINGDOM SWEEPER</p><h1>キングダムスイーパー</h1><p class="tagline">数字を読み、未知の地に王国を築く。</p></div>
     <img src="assets/keep.png" alt="" class="hero-castle">
@@ -82,6 +82,32 @@
 </main>
 <dialog id="result"><div class="result-inner"><p class="eyebrow" id="result-label">KINGDOM</p><h2 id="result-title"></h2><p id="result-summary"></p><button id="again">新しい王国を始める</button><a href="../">ミニゲーム集へ</a></div></dialog>
 <dialog id="confirm"><div class="result-inner"><h2>新しい王国を始めますか？</h2><p>現在の領土・資源・予約はリセットされます。</p><button id="confirm-restart">新しい王国へ</button><button id="cancel-restart" class="secondary">今の王国を続ける</button></div></dialog>
-<script src="engine.js?v=1"></script><script src="game.js?v=1"></script>
+<dialog id="help" class="help-dialog" aria-labelledby="help-title">
+  <div class="help-heading"><p class="eyebrow">FIRST STEPS</p><h2 id="help-title">王国づくりの進め方</h2><p>ヘルプを開いている間、ゲームは停止します。</p></div>
+  <div class="help-body">
+    <p class="help-goal"><b>目標：Dragonを討伐する</b><br>王城（Keep）のHPが0になると敗北。敵を避け続けるのではなく、軍備を整えてから敵のマスを開けるゲームです。</p>
+    <h3>まずは、この順番で遊ぼう</h3>
+    <ol class="help-steps">
+      <li><b>「停止」で落ち着いて計画する</b><p>停止中でも建築・開拓・育成を予約できます。初回はヘルプを閉じても停止したままなので、準備ができたら「1×」を押してください。</p></li>
+      <li><b>農場と兵舎を建てる</b><p>「建築計画」の「農場」を選び、地図の<b>開拓済みで何もない草地</b>をタップ。同様に「兵舎」を別の草地に予約します。最初の費用は合計WOOD 80・FOOD 20。「1×」で進めるとWorker（作業員）が建築します。</p><p>スマホでは建築計画が地図の下にあります。建物を選んでから地図へ戻ってください。</p></li>
+      <li><b>完成した兵舎で兵士を育てる</b><p>「選択」モードで地図の兵舎をタップし、選択情報の「Soldier育成」を押します。1体につきFOOD 30・WOOD 15、育成に7秒かかります。まず数体をそろえましょう。兵士は自動で戦います。</p></li>
+      <li><b>数字を読みながら領土を広げる</b><p>「開拓」モードで暗い未探索マスをタップ。Workerが開拓します。最初は領土の上下左右に接するマスから少しずつ。ドラッグでまとめて予約できますが、序盤に大量予約するとWorkerが採集できなくなります。</p></li>
+      <li><b>資源と防衛を増やす</b><p>Workerは空き時間に森林からWOOD、食料からFOOD、鉱山からGOLDを集めます。農場はFOODを自動生産。人口が上限なら「民家」で上限を5増やします。「監視塔」は3マス以内の敵を攻撃します。</p></li>
+      <li><b>敵拠点、最後にDragonへ挑む</b><p>敵拠点を開けるとゴブリンが3〜5体出現します。兵士を増やし、防衛を整えてから挑戦しましょう。Dragonは巣を開けるまで眠っています。「選択」で開拓済みマスを選び「兵士の集合地点にする」で軍を寄せてから、巣の候補を開拓します。討伐すれば勝利です。</p></li>
+    </ol>
+    <h3>数字の読み方</h3>
+    <p>数字は<b>周囲8マスの初期危険度の合計</b>です。ゴブリン拠点は1、Dragonの巣は3として数えます。</p>
+    <ul><li><b>0：</b>周囲8マスには初期敵拠点・巣がありません。ただし、出現済みの敵は移動してきます。</li><li><b>1：</b>周囲にゴブリン拠点が1つあります。既に開いた拠点も含みます。</li><li><b>3：</b>Dragon1つの場合も、ゴブリン拠点3つの場合もあります。3だけではDragonと断定できません。</li></ul>
+    <p>討伐しても数字は変わりません。「危険メモ」で未探索マスに旗を付けて推理に使えます。旗を外してから開拓してください。</p>
+    <h3>困ったとき</h3>
+    <dl><dt>建築できない</dt><dd>開拓済みの空き平地を選びます。森・鉱山・食料は採集し切ると平地になります。資源不足・別の予約・近くの敵も確認してください。</dd><dt>予約が「待機」のまま</dt><dd>上下左右の道がつながっていないか、Workerが別の作業中です。作業員が敵から退避することもあります。不要な予約は「×」で取消できます。</dd><dt>資源が増えない</dt><dd>開拓や建築を減らし、Workerに採集時間を与えます。資源マスを選択し「全Workerでこの資源を採集」で集中採集。「Workerの採集を自動に戻す」で分担に戻せます。</dd><dt>兵士を増やせない</dt><dd>FOOD・WOOD、人口上限、兵舎の育成待ち（最大5体）を確認。人口には育成予約も含まれます。</dd><dt>タブに戻ると止まっている</dt><dd>画面を離れると自動停止します。「1×」などで再開してください。</dd></dl>
+    <h3>スマホ・PCの操作</h3>
+    <p>「地図移動」でドラッグ、「＋／−」で拡縮、「⌂ 王城」で中央へ戻ります。「開拓」と「地図移動」を切り替えて使ってください。PCでは右クリックで採集・集合命令、Spaceで停止切替もできます。</p>
+    <h3>現在の制限</h3>
+    <p>風車・鍛冶屋は建築できますが、隣接による増産・兵士強化はまだありません。今は農場・民家・兵舎・監視塔を優先してください。宝箱は資源報酬のみ。途中保存はなく、再読み込みや「新しい王国」でリセットされます。</p>
+  </div>
+  <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
+</dialog>
+<script src="engine.js?v=1"></script><script src="game.js?v=2"></script>
 </body>
 </html>

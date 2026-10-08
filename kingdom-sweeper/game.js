@@ -6,6 +6,21 @@
   const assets = {}, assetNames = ['grass','forest','food','mine','camp','lair','chest','keep','farm','house','barracks','tower','windmill','blacksmith','worker','soldier','goblin','dragon'];
   let world = E.create(), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1, previousSpeed = 1;
   let pointer = null, last = performance.now(), uiElapsed = 0, lastEvent = null, actionKey = '', queueKey = '', resultShown = false, confirmSpeed = 1;
+  const helpSeenKey = 'kingdom-sweeper-help-v1';
+  let firstHelp = true, helpSpeed = 0;
+  try { firstHelp = localStorage.getItem(helpSeenKey) !== 'seen'; } catch (_) { /* Storage may be unavailable in private/file contexts. */ }
+  if (firstHelp) world.speed = 0;
+  function openHelp(initial = false) {
+    if ($('help').open || world.result) return;
+    helpSpeed = initial ? 0 : world.speed;
+    world.speed = 0; pointer = null; render(); $('help').showModal();
+  }
+  $('help-open').addEventListener('click', () => openHelp());
+  $('help-close').addEventListener('click', () => $('help').close());
+  $('help').addEventListener('close', () => {
+    try { localStorage.setItem(helpSeenKey, 'seen'); } catch (_) { /* Reading help must not depend on storage. */ }
+    setSpeed(document.hidden ? 0 : helpSpeed);
+  });
   const costText = cost => Object.entries(cost).map(([key,n]) => `${key.toUpperCase()} ${n}`).join(' / ');
   const timeText = n => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2,'0')}`;
   function notice(message) { $('notice').textContent = message; }
@@ -121,7 +136,7 @@
   $('confirm').addEventListener('cancel',()=>setSpeed(confirmSpeed));
   $('confirm-restart').addEventListener('click',()=>{$('confirm').close();restart();});
   $('again').addEventListener('click',()=>{$('result').close();restart();});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){world.speed=0;render();}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){world.speed=0;if($('help').open)helpSpeed=0;render();}});
   function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;let remaining=elapsed*world.speed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);remaining-=dt;}uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}draw();requestAnimationFrame(frame);}
-  Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(results=>{$('loading').hidden=true;center();render();if(results.some(ok=>!ok))notice('一部の画像が読み込めませんでした。再読み込みしてください。');requestAnimationFrame(frame);});
+  Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(results=>{$('loading').hidden=true;center();render();if(firstHelp)openHelp(true);if(results.some(ok=>!ok))notice('一部の画像が読み込めませんでした。再読み込みしてください。');requestAnimationFrame(frame);});
 })();
