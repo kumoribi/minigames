@@ -9,7 +9,7 @@
   const caption={buyStock:'株式を購入',sellStock:'株式を売却',rescueSell:'救済のため株式を売却',buyHappy:'幸福を購入',buyProperty:'不動産を購入',borrow:'融資カードを利用',repay:'元本と未払利息を全額返済',refinance:'融資カードで借り換え',offer:'市場へ融資カードを置く',cancelOffer:'未契約カードを取り下げ',eventSell:'イベントで不動産を売却',rescueBorrow:'無担保の緊急融資を受ける',restructure:'資産整理・破産処理',end:'手番を終了'};
   function button(label,a){const r=E.dispatch(state,a);return '<button data-action="'+esc(JSON.stringify(a))+'"'+(r.ok?'':' aria-disabled="true" title="'+esc(r.error)+'"')+'>'+esc(label)+'</button>'+(!r.ok?'<small class="unavailable">'+esc(r.error)+'</small>':'');}
   function feedback(text){$('status').textContent=text;}
-  function save(){try{LifeStorage.save(state);$('save').textContent='自動保存済み · 信用枠ルール v3';}catch(e){blocked=true;paused=true;$('save').textContent='保存できません：'+e.message;feedback(e.message);}}
+  function save(){try{LifeStorage.save(state);$('save').textContent='自動保存済み · 会社・配当ルール v4';}catch(e){blocked=true;paused=true;$('save').textContent='保存できません：'+e.message;feedback(e.message);}}
   function sound(){if(!$('sound').checked||document.hidden)return;try{const a=new AudioContext(),o=a.createOscillator(),g=a.createGain();o.frequency.value=620;g.gain.setValueAtTime(.03,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.12);o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+.14);o.onended=()=>a.close();}catch(_){}}
   function commit(a){const r=E.dispatch(state,{...a,revision:a.revision??state.revision});if(!r.ok){feedback(r.error);return;}state=r.state;feedback('');sound();save();render();}
   function dueEmergency(s,id){const p=E.player(s,id);return s.loans.filter(l=>l.borrower===id&&l.emergency&&l.dueTurn<=p.turns);}
@@ -24,6 +24,7 @@
     $('commit').disabled=false;
     const before=E.current(state),after=E.player(r.state,before.id),c=state.companies.find(c=>c.id===a.company),next=r.state.companies.find(c=>c.id===a.company);
     let preview='<div class="preview"><span>現金</span><strong>'+amount(before.cash)+' → '+amount(after.cash)+'</strong><span>使用可能な現金</span><strong>'+amount(E.spendable(state,before.id))+' → '+amount(E.spendable(r.state,before.id))+'</strong>'+(c?'<span>'+esc(c.name)+' 株価</span><strong>'+amount(c.stocks.length)+' → '+amount(next.stocks.length)+'</strong>':'')+'<span>次回利息</span><strong>'+amount(E.nextInterest(state,before.id))+' → '+amount(E.nextInterest(r.state,before.id))+'</strong></div>';
+    if(c)preview+='<div class="preview"><span>ラウンド末の配当見込</span><strong>'+amount(E.dividends(state,before.id))+' → '+amount(E.dividends(r.state,before.id))+'</strong></div>';
     if(a.type==='buyStock')preview+='<div class="preview"><span>購入株数</span><strong>'+(a.quantity??1)+'株</strong><span>購入総額</span><strong>'+amount(before.cash-after.cash)+'</strong></div>';
     if(a.type==='buyHappy')preview+='<div class="preview"><span>幸福ポイント</span><strong>'+E.happiness(state,before.id)+' → '+E.happiness(r.state,before.id)+'</strong><span>次の購入価格</span><strong>'+amount(E.happyPrice(r.state))+'</strong></div>';
     const newLoans=r.state.loans.filter(l=>!state.loans.some(old=>old.id===l.id)||state.loans.find(old=>old.id===l.id)?.principal!==l.principal);
@@ -50,7 +51,7 @@
     $('hud').innerHTML=[['使用可能な現金',E.spendable(state,p.id),'万円'],['幸福',E.happiness(state,p.id),'pt'],['借入・残債',E.debt(state,p.id),'万円'],['次回利息',E.nextInterest(state,p.id),'万円']].map(([k,v,u])=>'<div class="metric"><small>'+k+'</small><strong>'+num(v)+'<em>'+u+'</em></strong></div>').join('');
     $('turn').textContent=state.phase==='finished'?'人生の決算':p.name+(state.phase==='event'?'の売却機会':state.phase==='rescue'?'の支払救済':'の手番');
     $('guide').textContent=state.phase==='ready'?'初期資金500万円。幸福の初期価格は10万円。':state.phase==='event'?'所有物件を1件売るか、見送ってください。':state.phase==='rescue'?'支払不足です。緊急融資は次の手番末に返せなければ脱落します。':p.rehab?'資産整理中：収入を残債返済へ。':(state.tradeCompany?'売買中：'+state.companies.find(c=>c.id===state.tradeCompany).name+'（回数制限なし）':'主行動 '+(state.mainUsed?'使用済み':'あと1回'))+' ／ 金融 '+(state.financeUsed?'使用済み':'あと1回')+' ／ 幸福は別枠';
-    $('pause').textContent=paused?'再開':'一時停止';$('event-title').textContent=state.event?.name||'人生の準備をしましょう';$('event-detail').textContent=state.event?.detail||'6社の株・6種類の不動産と、みんなの融資カード。最後は幸福で勝負。';
+    $('pause').textContent=paused?'再開':'一時停止';$('event-title').textContent=state.event?.name||'人生の準備をしましょう';$('event-detail').textContent=state.event?.detail||'6社の配当と値動き、26枚から引く24枚のイベント。最後は幸福で勝負。';
     $('players').innerHTML=state.players.map(q=>{
       const urgent=state.loans.filter(l=>l.borrower===q.id&&l.emergency);
       return '<div class="player-row '+(q.bankrupt?'eliminated':'')+'"><strong><i class="dot owner-'+q.id+'"></i>'+esc(q.name)+(q.bankrupt?' · 脱落':q.id===state.active?' ◀':'')+'</strong><small>幸福 '+E.happiness(state,q.id)+'pt · 現金 '+amount(q.cash)+'<br>使用可能 '+amount(E.spendable(state,q.id))+' · 株 '+E.stocks(state,q.id).length+'枚<br>借入・残債 '+amount(E.debt(state,q.id))+' · 不動産 '+state.properties.filter(x=>x.owner===q.id).length+'件'+(q.rehab&&!q.bankrupt?' · 資産整理中':'')+'</small>'+urgent.map(l=>'<p class="deadline">緊急 '+amount(l.principal)+'・20%<br>'+emergencySummary(l)+'</p>').join('')+'</div>';
@@ -58,7 +59,7 @@
     $('history').innerHTML=state.log.slice(-12).reverse().map(l=>'<li>'+l.round+'R · '+esc(l.text)+'</li>').join('');
     $('action-title').textContent=paused?'進行を停止しています':state.phase==='ready'?'自分らしい人生を、ここから':state.phase==='finished'?'人生の結果を確認できます':p.name+' · 現金 '+amount(p.cash);
     const urgent=dueEmergency(state,p.id);
-    $('action-note').textContent=urgent.length?'期限：この手番末に '+amount(urgent.reduce((n,l)=>n+E.repaymentTotal(l),0))+'を返済。不能なら脱落。':'追加融資枠 '+amount(credit.remaining)+' ／ 収入見込 '+amount(state.config.income+rent)+'。金額は端数切り捨て。';
+    $('action-note').textContent=urgent.length?'期限：この手番末に '+amount(urgent.reduce((n,l)=>n+E.repaymentTotal(l),0))+'を返済。不能なら脱落。':'追加融資枠 '+amount(credit.remaining)+' ／ 収入見込 '+amount(state.config.income+rent+E.dividends(state,p.id))+'（うち配当 '+amount(E.dividends(state,p.id))+'）。金額は端数切り捨て。';
     $('end').textContent=state.phase==='ready'?'人生を開始':state.phase==='event'?'売却を見送る':state.phase==='finished'?'結果を見る':'ターン終了';
     $('end').disabled=paused||blocked||state.phase==='rescue'||(p.controller==='ai'&&!['ready','finished'].includes(state.phase));
     document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
@@ -66,7 +67,7 @@
     if(state.phase==='event')html+='<div class="notice">'+esc(name(state.pending.owner))+'の売却機会。不動産タブから1件選ぶか、見送れます。</div>';
     if(state.phase==='rescue')html+='<div class="notice">保有株を売却、または '+button('緊急融資で支払う',{type:'rescueBorrow'})+button('資産整理・破産処理',{type:'restructure'})+'</div>';
     if(tab==='stocks') {
-      html+='<div class="cards">'+state.companies.map(c=>'<article class="card"><span class="kicker">'+esc(c.sector)+'</span><h3>'+esc(c.name)+'</h3><p>自分 '+c.stocks.filter(t=>t.owner===p.id).length+'株 / NPC '+c.stocks.filter(t=>t.owner==='npc').length+'株</p><strong class="price">'+c.stocks.length+'<small> 万円</small></strong><div class="stack">'+c.stocks.slice(-8).map(t=>'<span class="stock-chip owner-'+t.owner+'">'+(t.owner==='npc'?'N':t.owner+1)+'</span>').join('')+'</div><div class="card-action">'+button('購入 '+amount(c.stocks.length+1),{type:'buyStock',company:c.id})+'</div></article>').join('')+'</div><p class="legend">N：市場NPC ／ 数字：所有プレイヤー。カード総枚数が株価です。<br>同じ手番では最初に売買した1銘柄のみ、何度でも売買できます。</p><h2 class="section-label">あなたの保有株 · 途中のカードも売却可能</h2>';
+      html+='<div class="cards">'+state.companies.map(c=>'<article class="card"><span class="kicker">'+esc(c.sector)+'</span><h3>'+esc(c.name)+'</h3><p>自分 '+c.stocks.filter(t=>t.owner===p.id).length+'株 / NPC '+c.stocks.filter(t=>t.owner==='npc').length+'株</p><strong class="price">'+c.stocks.length+'<small> 万円</small></strong><p class="company-facts">'+esc(c.profile)+'<br>配当 '+amount(c.dividend)+' / 株・ラウンド<br>基準値幅 ±'+num(c.swing)+'万円<br>自社株買い対象 '+E.buybackCount(c.id)+' / 26枚</p><div class="stack">'+c.stocks.slice(-8).map(t=>'<span class="stock-chip owner-'+t.owner+'">'+(t.owner==='npc'?'N':t.owner+1)+'</span>').join('')+'</div><div class="card-action">'+button('購入 '+amount(c.stocks.length+1),{type:'buyStock',company:c.id})+'</div></article>').join('')+'</div><p class="legend">N：市場NPC ／ 数字：所有プレイヤー。カード総枚数が株価です。<br>同じ手番では最初に売買した1銘柄のみ、何度でも売買できます。配当はラウンド末に保有している株が対象。下落イベントはNPC株のみを除去します。</p><h2 class="section-label">あなたの保有株 · 途中のカードも売却可能</h2>';
       const own=state.companies.flatMap(c=>c.stocks.filter(t=>t.owner===p.id).map(t=>'<div class="list-row"><div>'+esc(c.name)+'<small>取得 '+amount(t.cost)+' · 売却損益 '+amount(c.stocks.length-1-t.cost)+'</small></div><div>'+button('売却 '+amount(c.stocks.length-1),{type:state.phase==='rescue'?'rescueSell':'sellStock',company:c.id,stock:t.id})+'</div></div>'));
       html+=own.join('')||'<p class="legend">まだ株式を保有していません。</p>';
     } else if(tab==='property') {
@@ -124,7 +125,7 @@
   $('help').onclick=()=>{clearTimeout(timer);$('help-dialog').showModal();};$('close-help').onclick=()=>{$('help-dialog').close();schedule();};
   $('events').onclick=()=>{
     clearTimeout(timer);
-    $('event-list').innerHTML=LifeCards.events.map(([kind,title])=>'<article class="event-entry"><h3>'+esc(title)+'<span>'+LifeCards.eventCopies+'枚</span></h3><p>'+esc(LifeCards.eventDescriptions[kind])+'</p></article>').join('');
+    $('event-list').innerHTML=LifeCards.events.map(e=>'<article class="event-entry"><h3>'+esc(e.name)+'<span>'+e.copies+'枚</span></h3><p>'+esc(e.description)+'</p></article>').join('');
     $('event-cards-dialog').showModal();
   };
   $('close-events').onclick=()=>$('event-cards-dialog').close();
@@ -140,7 +141,7 @@
   window.addEventListener('storage',e=>{if(e.key===LifeStorage.key){blocked=true;paused=true;feedback('別のタブで保存が変わりました。再読み込みしてください');render();}});
   try {
     const saved=LifeStorage.read();
-    if(saved){state=saved;paused=true;$('save').textContent='信用枠ルール v3 の進行を読み込みました';$('resume-detail').textContent=state.round+'ラウンド目・'+name(state.active)+'の進行を再開できます。';render();$('resume').showModal();}
+    if(saved){state=saved;paused=true;$('save').textContent='会社・配当ルール v4 の進行を読み込みました';$('resume-detail').textContent=state.round+'ラウンド目・'+name(state.active)+'の進行を再開できます。';render();$('resume').showModal();}
     else {render();if(LifeStorage.hasLegacy()){$('legacy-links').innerHTML=LifeStorage.legacySaves().map(x=>'<a class="legacy-link" href="'+x.path+'">'+x.label+'で続きから</a>').join('');$('legacy-dialog').showModal();}else setup();}
   }catch(e){blocked=true;feedback('保存データを読み込めません：'+e.message);render();}
   document.body.classList.toggle('reduced',$('motion').checked);

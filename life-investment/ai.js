@@ -20,8 +20,13 @@
         return -20;
       }
       // Repeated trading is legal for humans. AI stops after a short batch and never churns buy/sell.
-      if(a.type==='buyStock')return s.tradeCount>=3?0:s.round<15?(strategy==='stock'?95:45):0;
-      if(a.type==='sellStock')return s.tradeCount>=3?0:s.round>17?70:0;
+      if(a.type==='buyStock') {
+        if(s.tradeCount>=3||s.round>=15)return 0;
+        const c=s.companies.find(c=>c.id===a.company),price=c.stocks.length+1;
+        const income=remaining*c.dividend,returnScore=Math.min(20,income/price*10);
+        return (strategy==='stock'?85:45)+returnScore+E.buybackCount(c.id)+Math.min(5,c.swing/price*3);
+      }
+      if(a.type==='sellStock'){const c=s.companies.find(c=>c.id===a.company);return s.tradeCount>=3?0:s.round>17?70-Math.min(20,remaining*c.dividend):0;}
       // Happiness uses no action slot; repeat while affordable under the same human rules.
       if(a.type==='buyHappy')return strategy==='happy'?100:s.round>10?90:35;
       if(a.type==='buyProperty') {const prop=s.properties.find(p=>p.id===a.property);return strategy==='happy'?0:prop.occupied&&remaining*prop.rent>=prop.price?95:0;}

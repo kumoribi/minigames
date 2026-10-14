@@ -40,11 +40,14 @@ test('invalid or unaffordable bulk orders are atomic and revision guard prevents
  const a={type:'buyStock',company:'sun',quantity:2,revision:s.revision};const next=act(s,a);reject(next,a);
  s.phase='ready';reject(s,{type:'buyStock',company:'sun',quantity:2});
 });
-test('event reference covers exactly the actual deck kinds and copy counts for every seed',()=>{
- const C=require('./cards.js');assert.equal(C.events.length,12);assert.equal(C.eventCopies,2);assert(!Object.keys(C).includes('eventCopies'));assert(!Object.keys(C).includes('eventDescriptions'));assert.deepEqual(Object.keys(C.eventDescriptions).sort(),C.events.map(e=>e[0]).sort());
+test('event reference matches 26 cards, protected property sales, buyback counts and 25 shuffled decks',()=>{
+ const C=require('./cards.js');assert.equal(C.events.reduce((n,e)=>n+e.copies,0),26);assert.equal(C.events.filter(e=>e.kind==='buyback').reduce((n,e)=>n+e.copies,0),8);
+ assert.deepEqual(C.companies.map(c=>E.buybackCount(c.id)),[4,1,3,5,2,1]);
+ for(const key of ['earn','bad','sell','boom','recession','salePlus','saleMinus'])assert.equal(C.events.find(e=>e.key===key).copies,2);
+ for(const key of ['ease','tight','vacant','tenant'])assert.equal(C.events.find(e=>e.key===key).copies,1);
  for(let seed=0;seed<25;seed++){
-  const s=E.create(seed);assert.equal(s.deck.length,24);
-  for(const [kind] of C.events){assert.equal(s.deck.filter(e=>e.kind===kind).length,C.eventCopies);assert(C.eventDescriptions[kind].length>15);}
+  const s=E.create(seed);assert.equal(s.deck.length,26);
+  for(const e of C.events){assert.equal(s.deck.filter(d=>d.key===e.key).length,e.copies);assert(e.description.length>15);}
  }
 });
 
@@ -135,12 +138,12 @@ test('schema, owner, deadline and configuration validation reject corrupt restor
  const s=make();for(const mutate of [x=>x.schemaVersion=1,x=>x.config.cash=1,x=>x.companies[0].stocks[0].owner=99,x=>x.players[0].cash=-1]){const bad=structuredClone(s);mutate(bad);assert.throws(()=>E.assertState(bad));}
  let withLoan=act(s,{type:'borrow',offer:'emergency',principal:100});withLoan.loans[0].dueTurn=null;assert.throws(()=>E.assertState(withLoan));
 });
-test('storage v3 preserves both v1/v2 byte-for-byte and detects other tabs',()=>{
- const disk=new Map([['life-investment-save-v1','OLD-V1-BYTES'],['life-investment-save-v2','OLD-V2-BYTES']]);
+test('storage v4 preserves v1/v2/v3 byte-for-byte and detects other tabs',()=>{
+ const disk=new Map([['life-investment-save-v1','OLD-V1-BYTES'],['life-investment-save-v2','OLD-V2-BYTES'],['life-investment-save-v3','OLD-V3-BYTES']]);
  const ctx={LifeEngine:E,localStorage:{getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)}};ctx.globalThis=ctx;
- vm.runInNewContext(fs.readFileSync(__dirname+'/storage.js','utf8'),ctx);assert.equal(ctx.LifeStorage.read(),null);assert(ctx.LifeStorage.hasLegacy());assert.equal(ctx.LifeStorage.legacySaves().length,2);
- ctx.LifeStorage.save(make());assert.equal(disk.get('life-investment-save-v1'),'OLD-V1-BYTES');assert.equal(disk.get('life-investment-save-v2'),'OLD-V2-BYTES');assert.equal(ctx.LifeStorage.read().schemaVersion,3);
- disk.set('life-investment-save-v3','other');assert.throws(()=>ctx.LifeStorage.save(make()));
+ vm.runInNewContext(fs.readFileSync(__dirname+'/storage.js','utf8'),ctx);assert.equal(ctx.LifeStorage.read(),null);assert(ctx.LifeStorage.hasLegacy());assert.equal(ctx.LifeStorage.legacySaves().length,3);
+ ctx.LifeStorage.save(make());assert.equal(disk.get('life-investment-save-v1'),'OLD-V1-BYTES');assert.equal(disk.get('life-investment-save-v2'),'OLD-V2-BYTES');assert.equal(disk.get('life-investment-save-v3'),'OLD-V3-BYTES');assert.equal(ctx.LifeStorage.read().schemaVersion,4);
+ disk.set('life-investment-save-v4','other');assert.throws(()=>ctx.LifeStorage.save(make()));
 });
 test('legacy engine can still validate and play its own saved v1 configuration',()=>{
  const legacy=require('./legacy/engine.js'),s=legacy.create(19);assert.equal(s.schemaVersion,1);assert.equal(s.players[0].cash,60);assert(legacy.assertState(s));assert(legacy.dispatch(s,{type:'start'}).ok);
@@ -177,13 +180,72 @@ test('AI can buy happiness repeatedly after both slots, then finishes when unaff
  for(let i=0;i<2;i++){const a=AI.choose(s);assert.equal(a.type,'buyHappy');s=act(s,a);}
  assert.equal(s.players[0].cash,0);assert.equal(E.happiness(s,0),2);assert(s.mainUsed&&s.financeUsed);assert.equal(AI.choose(s).type,'end');
 });
-test('credit rules v3 save upgrades without resetting assets, emergency deadlines or past actions',()=>{
- let old=make();old=act(old,{type:'borrow',offer:'emergency',principal:100});old.mainUsed=true;old.rulesVersion=3;
- const original=JSON.stringify(old),updated=E.upgradeState(old);assert.equal(JSON.stringify(old),original);assert.equal(updated.rulesVersion,4);const expected=JSON.parse(original);expected.rulesVersion=4;assert.deepEqual(updated,expected);
- const disk=new Map([['life-investment-save-v3',JSON.stringify({format:3,token:'old-credit',state:old})]]),ctx={LifeEngine:E,localStorage:{getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)}};ctx.globalThis=ctx;
- vm.runInNewContext(fs.readFileSync(__dirname+'/storage.js','utf8'),ctx);const before=disk.get('life-investment-save-v3');let s=ctx.LifeStorage.read();assert.equal(disk.get('life-investment-save-v3'),before);assert.equal(s.rulesVersion,4);
- s=act(s,{type:'buyHappy'});ctx.LifeStorage.save(s);assert.equal(JSON.parse(disk.get('life-investment-save-v3')).state.rulesVersion,4);assert.equal(s.loans[0].dueTurn,old.loans[0].dueTurn);assert(s.mainUsed&&s.financeUsed);
- const unknown=structuredClone(old);unknown.rulesVersion=99;assert.throws(()=>E.upgradeState(unknown));
+test('legacy v3 retains old companies, 24 cards, bulk buying and upgrades its historical rules',()=>{
+ const L=require('./legacy-v3/engine.js');let old=L.create(71,['human','human']);old.phase='turn';old.active=0;old.leader=0;old.turnOrder=[0,1];old.turnIndex=0;old.players[0].turns=1;
+ old=L.dispatch(old,{type:'buyStock',company:'sun',quantity:3}).state;old=L.dispatch(old,{type:'borrow',offer:'emergency',principal:100}).state;old.mainUsed=true;old.rulesVersion=3;
+ const original=JSON.stringify(old),updated=L.upgradeState(old);assert.equal(JSON.stringify(old),original);assert.equal(updated.rulesVersion,4);assert.equal(updated.deck.length,24);assert.equal(updated.tradeCount,3);assert(!('dividend' in updated.companies[0]));assert.throws(()=>E.upgradeState(updated));
+ const disk=new Map([['life-investment-save-v3',JSON.stringify({format:3,token:'old-credit',state:old})]]),ctx={LifeEngine:L,localStorage:{getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)}};ctx.globalThis=ctx;
+ vm.runInNewContext(fs.readFileSync(__dirname+'/legacy-v3/storage.js','utf8'),ctx);const before=disk.get('life-investment-save-v3');let saved=ctx.LifeStorage.read();assert.equal(disk.get('life-investment-save-v3'),before);
+ const action=L.dispatch(saved,{type:'buyHappy'});assert(action.ok,action.error);saved=action.state;ctx.LifeStorage.save(saved);assert.equal(saved.loans[0].dueTurn,old.loans[0].dueTurn);assert(saved.mainUsed&&saved.financeUsed);
+});
+
+function forceEvent(s,key){const i=s.deck.findIndex(e=>e.key===key);assert(i>=0);[s.deck[0],s.deck[i]]=[s.deck[i],s.deck[0]];return s;}
+test('company characteristics exactly match approved dividend and price swings',()=>{
+ const s=E.create();assert.deepEqual(s.companies.map(c=>c.dividend),[1,0,1,2,1,0]);assert.deepEqual(s.companies.map(c=>c.swing),[2,8,4,3,12,18]);assert.equal(E.dividends(s,0),0);
+});
+test('random price events use each selected company swing, preserve owners/costs, and cap NPC removal',()=>{
+ for(const key of ['earn','bad','sell']){
+  const selected=new Set();
+  for(let seed=0;seed<60;seed++){
+   let s=forceEvent(E.create(seed,['human','human']),key);for(const c of s.companies)own(s,0,2,c.id);
+   const owned=structuredClone(E.stocks(s,0)),before=s.companies.map(c=>c.stocks.length);s=act(s,{type:'start'});
+   const changed=s.companies.filter((c,i)=>c.stocks.length!==before[i]);assert.equal(changed.length,1);const c=changed[0],index=s.companies.indexOf(c);selected.add(c.id);
+   const delta=key==='earn'?c.swing:-Math.min(c.initial,c.swing*(key==='sell'?2:1));assert.equal(c.stocks.length-before[index],delta);assert.deepEqual(E.stocks(s,0),owned);
+  }
+  assert.equal(selected.size,6);
+ }
+ let s=forceEvent(E.create(8,['human','human']),'sell');for(const c of s.companies){c.stocks=[];own(s,0,1,c.id);}const owned=structuredClone(E.stocks(s,0));s=act(s,{type:'start'});assert.deepEqual(E.stocks(s,0),owned);assert(s.companies.every(c=>c.stocks.length===1));
+});
+test('each multi-company buyback affects all and only listed companies with individual swings',()=>{
+ const C=require('./cards.js');for(const e of C.events.filter(e=>e.kind==='buyback')){
+  let s=forceEvent(E.create(4,['human','human']),e.key);const before=s.companies.map(c=>c.stocks.length);s=act(s,{type:'start'});
+  for(const [i,c] of s.companies.entries())assert.equal(c.stocks.length,before[i]+(e.targets.includes(c.id)?c.swing:0));
+  for(const id of e.targets)assert(s.event.detail.includes(s.companies.find(c=>c.id===id).name));
+ }
+ let s=forceEvent(E.create(4),'boom');s=act(s,{type:'start'});assert(s.companies.every(c=>c.stocks.length===c.initial+c.swing));
+});
+test('dividends pay once at round end for held shares, include all players, and exclude NPC and nonpaying companies',()=>{
+ let s=make(2);for(const c of s.companies)own(s,0,2,c.id);own(s,1,3,'light');assert.equal(E.dividends(s,0),10);assert.equal(E.dividends(s,1),6);
+ s=act(s,{type:'end'});assert.equal(s.players[0].cash,500);s=act(s,{type:'end'});assert.equal(s.players[0].cash,550);assert.equal(s.players[1].cash,546);
+ assert(s.log.some(l=>l.text.includes('配当10')));assert(s.log.some(l=>l.text.includes('配当6')));
+ const restored=E.upgradeState(JSON.parse(JSON.stringify(s)));assert.deepEqual(restored,s);assert.equal(E.dividends(restored,0),10);
+});
+test('bulk buys earn per-share dividends but shares sold before settlement do not',()=>{
+ let s=make(2);s=act(s,{type:'buyStock',company:'sun',quantity:3});s=act(s,{type:'sellStock',company:'sun',stock:E.stocks(s,0)[1].id});assert.equal(E.dividends(s,0),2);assert.equal(s.players[0].cash,484);
+ s=act(s,{type:'end'});s=act(s,{type:'end'});assert.equal(s.players[0].cash,526);
+});
+test('dividend income can pay round interest and never duplicates on rescue resume',()=>{
+ let s=make(2);own(s,0,10,'light');s=ordinary(s,0,1000,5);s.players[0].cash=0;s=act(s,{type:'end'});s=act(s,{type:'end'});assert.equal(s.players[0].cash,10);assert.equal(s.loans[0].interestPayments,1);assert.notEqual(s.phase,'rescue');
+ s=make(2);own(s,0,1,'light');s=ordinary(s,0,2000,10);s.players[0].cash=0;s=act(s,{type:'end'});s=act(s,{type:'end'});assert.equal(s.phase,'rescue');assert.equal(s.players[0].cash,42);assert.equal(s.players[1].cash,540);
+ s=E.upgradeState(JSON.parse(JSON.stringify(s)));reject(s,{type:'buyHappy'});s=act(s,{type:'restructure'});assert.equal(s.players[1].cash,540);assert.equal(s.log.filter(l=>l.text.includes('の収入＋')).length,2);
+});
+test('bankrupt players receive no new dividend or income',()=>{
+ let s=make(3);own(s,2,10,'light');s.players[2].bankrupt=true;s.turnOrder=[0,1];s=act(s,{type:'end'});s=act(s,{type:'end'});assert.equal(s.players[2].cash,500);assert(!s.log.some(l=>l.text.includes(s.players[2].name+'の収入')));
+});
+test('24 rounds draw exactly 24 of 26 shuffled cards without replacement',()=>{
+ for(let seed=0;seed<25;seed++){
+  let s=act(E.create(seed,['human','human']),{type:'start'}),seen=[s.event.id];
+  while(s.phase!=='finished'){const round=s.round;s=act(s,{type:s.phase==='event'?'eventSkip':'end'});if(s.round!==round)seen.push(s.event.id);}
+  assert.equal(seen.length,24);assert.equal(new Set(seen).size,24);assert.deepEqual(seen,s.deck.slice(0,24).map(e=>e.id));assert(s.deck.slice(24).every(e=>!seen.includes(e.id)));
+ }
+});
+test('saved company values and event identities/counts cannot be tampered with',()=>{
+ const s=make();for(const mutate of [s=>s.companies[0].dividend=99,s=>s.companies[0].swing=1,s=>s.deck.pop(),s=>s.deck[0].targets=['sun'],s=>s.deck[0].kind='invalid',s=>s.deck[0].key='invalid']){const bad=structuredClone(s);mutate(bad);assert.throws(()=>E.assertState(bad));}
+});
+test('AI compares company dividend return and buyback support instead of choosing the first ticker',()=>{
+ let s=make();assert.equal(AI.choose(s,'stock').type,'buyStock');assert.equal(AI.choose(s,'stock').company,'light');
+ for(let i=0;i<100;i++)s.companies.find(c=>c.id==='light').stocks.push({id:'id'+s.nextId++,company:'light',owner:'npc',cost:null,round:1});
+ assert.equal(AI.choose(s,'stock').company,'sun');
 });
 
 test('500 deterministic games, 2-4 players, AI strategies, repeat trading and debt stress complete',()=>{

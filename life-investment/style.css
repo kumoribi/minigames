@@ -8,3 +8,6 @@
 /* Quantity orders and public event reference. */
 header{flex-wrap:wrap}header div{flex-wrap:wrap}#stock-order[hidden]{display:none}#stock-quantity{display:block;width:100%;min-height:44px;margin-top:8px;padding:10px;border:1px solid #ffffff44;border-radius:10px;background:#142c25;color:var(--ink);font:inherit}#stock-quantity:focus-visible{outline:3px solid var(--accent)}.event-entry{border-top:1px solid var(--line);padding:8px 0}.event-entry h3{display:flex;justify-content:space-between;gap:12px}.event-entry h3 span{white-space:nowrap}.event-entry p{margin-bottom:10px}
 @media(max-width:440px){header>div{width:100%}header button{padding:10px;font-size:.8rem}}
+
+.company-facts{border-top:1px solid #203d3622;padding-top:9px!important;line-height:1.8!important}.event-entry h3{flex-wrap:wrap}.event-entry h3 span{margin-left:auto}
+@media(max-width:440px){.card .company-facts{grid-column:1/-1;grid-row:5;margin-top:12px}.card .stack{grid-row:4}.card .card-action{grid-row:4}}
