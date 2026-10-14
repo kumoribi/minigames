@@ -1,7 +1,7 @@
 (function(root){
   'use strict';
   const config={
-    rounds:24,cash:500,income:40,happinessBase:10,
+    rounds:24,cash:0,startingFunds:500,grantAmount:100,grantTurns:5,income:40,happinessBase:10,
     companies:[
   {
     "id": "sun",

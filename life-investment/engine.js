@@ -26,6 +26,14 @@
   function stockValue(s,id) {
     return s.companies.reduce((sum,c) => {const k=c.stocks.filter(t=>t.owner===id).length;return sum+k*(c.stocks.length-1)-k*(k-1)/2;},0);
   }
+  function portfolio(s,id) {
+    const holdings=s.companies.map(c=>{
+      const owned=c.stocks.filter(t=>t.owner===id),count=owned.length,cost=owned.reduce((n,t)=>n+t.cost,0);
+      const value=count*(c.stocks.length-1)-count*(count-1)/2;
+      return {company:c.id,name:c.name,count,cost,value,profit:value-cost,dividend:count*c.dividend};
+    }).filter(h=>h.count);
+    return {holdings,count:holdings.reduce((n,h)=>n+h.count,0),cost:holdings.reduce((n,h)=>n+h.cost,0),value:holdings.reduce((n,h)=>n+h.value,0),profit:holdings.reduce((n,h)=>n+h.profit,0)};
+  }
   // Credit is an eligibility check, never an asset lock or spending reservation.
   const spendable = (s,id) => player(s,id).cash;
   function creditProfile(s,id) {
@@ -59,7 +67,7 @@
     return {player:id,entries};
   }
   function beginCashReport(s,actor,partial=false) {
-    s.cashReport={version:1,id:s.gameId+':'+(s.revision+1),updatedRevision:s.revision+1,round:s.round,actor,kind:partial?'round':'turn',partial,complete:false,recording:true,
+    s.cashReport={version:2,startingGrant:{player:actor,amount:player(s,actor).turnGrant,paid:player(s,actor).grantsPaid,remaining:C.startingFunds-player(s,actor).grantsPaid*C.grantAmount},id:s.gameId+':'+(s.revision+1),updatedRevision:s.revision+1,round:s.round,actor,kind:partial?'round':'turn',partial,complete:false,recording:true,
       rows:s.players.map(p=>({player:p.id,cashBefore:p.cash,cashAfter:p.cash,transferredInterest:0,entries:[]}))};
   }
   function reportEntry(s,id,category,direction,amount,label) {
@@ -88,8 +96,8 @@
   function addStock(s,c,owner,cost) {c.stocks.push({id:uid(s),company:c.id,owner,cost,round:s.round});}
   function create(seed=Date.now()>>>0,controllers=['human','ai']) {
     if(controllers.length<2||controllers.length>4||controllers.some(x=>!['human','ai'].includes(x)))fail('人数は2～4人です');
-    const s={schemaVersion:4,rulesVersion:5,config:copy(C),gameId:'life4-'+seed+'-'+Date.now(),seed:seed>>>0,rng:seed>>>0,nextId:1,revision:0,phase:'ready',round:1,active:0,leader:0,turnOrder:[],turnIndex:0,mainUsed:false,tradeCompany:null,tradeCount:0,financeUsed:false,
-      players:controllers.map((controller,id)=>({id,name:controller==='ai'?'投資家AI '+id:'プレイヤー '+(id+1),controller,cash:C.cash,rehab:false,bankrupt:false,turns:0})),
+    const s={schemaVersion:5,rulesVersion:6,config:copy(C),gameId:'life5-'+seed+'-'+Date.now(),seed:seed>>>0,rng:seed>>>0,nextId:1,revision:0,phase:'ready',round:1,active:0,leader:0,turnOrder:[],turnIndex:0,mainUsed:false,tradeCompany:null,tradeCount:0,financeUsed:false,
+      players:controllers.map((controller,id)=>({id,name:controller==='ai'?'投資家AI '+id:'プレイヤー '+(id+1),controller,cash:C.cash,grantsPaid:0,turnGrant:0,rehab:false,bankrupt:false,turns:0})),
       companies:C.companies.map(c=>({...c,stocks:[]})),properties:C.properties.map(p=>({...p,owner:null,occupied:true,cost:0})),happiness:[],loans:[],claims:[],offers:[],deck:[],event:null,pending:null,settlement:null,log:[],winners:[]};
     for(const c of s.companies)for(let i=0;i<c.initial;i++)addStock(s,c,'npc',null);
     for(const o of C.bankCards)s.offers.push({...o,id:uid(s),lender:'bank'});
@@ -108,7 +116,7 @@
   }
   function main(s,company=null) {
     if(s.phase!=='turn'||current(s).bankrupt)fail('通常の手番ではありません');
-    if(s.mainUsed&&(!company||s.tradeCompany!==company))fail(s.tradeCompany?'この手番は'+s.companies.find(c=>c.id===s.tradeCompany).name+'だけ売買できます':'主行動は使用済みです');
+    if(s.mainUsed&&(!company||!s.tradeCompany))fail(s.tradeCompany?'この手番の主行動は株式売買です。不動産は購入できません':'主行動は使用済みです');
   }
   function finance(s) {if(s.phase!=='turn'||current(s).bankrupt)fail('金融操作できません');if(s.financeUsed)fail('金融操作は使用済みです');}
   function newLoan(s,borrower,lender,principal,rate,creditAtIssue,emergency=false) {
@@ -172,7 +180,16 @@
     pay(s,id,old.lender,old.principal+due);
     log(s,player(s,id).name+'が'+old.rate+'%→'+l.rate+'%へ借り換え');
   }
-  function startTurn(s,id) {s.active=id;player(s,id).turns++;s.mainUsed=false;s.tradeCompany=null;s.tradeCount=0;s.financeUsed=false;s.phase='turn';}
+  function startTurn(s,id) {
+    const p=player(s,id);if(p.bankrupt)fail('脱落者の手番は開始できません');
+    s.active=id;p.turns++;p.turnGrant=0;
+    if(p.grantsPaid<C.grantTurns){
+      p.grantsPaid++;p.turnGrant=C.grantAmount;
+      pay(s,'bank',id,p.turnGrant,null,[{category:'grant',amount:p.turnGrant,label:'第'+p.turns+'手番開始時の初期資金（'+p.grantsPaid+'/'+C.grantTurns+'回）'}]);
+      log(s,p.name+'が初期資金'+p.turnGrant+'万円を受領（'+p.grantsPaid+'/'+C.grantTurns+'回・残り'+(C.startingFunds-p.grantsPaid*C.grantAmount)+'万円）');
+    }
+    s.mainUsed=false;s.tradeCompany=null;s.tradeCount=0;s.financeUsed=false;s.phase='turn';
+  }
   function beginRound(s) {
     s.turnOrder=Array.from({length:s.players.length},(_,i)=>(s.leader+i)%s.players.length).filter(id=>!player(s,id).bankrupt);
     s.turnIndex=0;startTurn(s,s.turnOrder[0]);s.event=s.deck[s.round-1];runEvent(s);
@@ -360,7 +377,7 @@
     }catch(e){return {ok:false,error:e.message,state};}
   }
   function assertState(s) {
-    if(s.schemaVersion!==4||s.rulesVersion!==5)fail('旧ルールの保存です。旧版の入口から再開してください');
+    if(s.schemaVersion!==5||s.rulesVersion!==6)fail('旧ルールの保存です。旧版の入口から再開してください');
     if(JSON.stringify(s.config)!==JSON.stringify(C))fail('保存された設定が対応ルールと一致しません');
     if(!['ready','turn','event','rescue','finished'].includes(s.phase)||!integer(s.round)||s.round<1||s.round>24||!integer(s.revision)||!integer(s.nextId)||!integer(s.rng))fail('進行状態が不正です');
     if(!Array.isArray(s.players)||s.players.length<2||s.players.length>4||s.players.some((p,i)=>p.id!==i||!integer(p.cash)||!integer(p.turns)||!['human','ai'].includes(p.controller)||typeof p.bankrupt!=='boolean')||!player(s,s.active))fail('プレイヤー状態が不正です');
@@ -394,9 +411,11 @@
     for(const c of s.claims){check(c);if(!player(s,c.borrower)||!lender(c.lender)||!integer(c.amount)||c.amount<1)fail('残債が不正です');}
     for(const p of s.players)if(!integer(debt(s,p.id)))fail('債務が不正です');
     if(s.phase==='turn'&&current(s).bankrupt)fail('脱落者に手番があります');
+    for(const p of s.players)if(!integer(p.grantsPaid)||p.grantsPaid!==Math.min(p.turns,C.grantTurns)||![0,C.grantAmount].includes(p.turnGrant)||(p.turns===0&&p.turnGrant!==0)||(p.turns>C.grantTurns&&p.turnGrant!==0))fail('初期資金の支給記録が不正です');
     if(s.cashReport!==undefined){
-      const report=s.cashReport,categories=['base','rent','dividend','interest','principal','claims','stock','funding','other'];
-      if(report.version!==1||typeof report.id!=='string'||!integer(report.updatedRevision)||report.updatedRevision>s.revision||!integer(report.round)||report.round<1||report.round>24||!player(s,report.actor)||!['turn','round'].includes(report.kind)||typeof report.complete!=='boolean'||typeof report.partial!=='boolean'||typeof report.recording!=='boolean'||report.recording===report.complete||!Array.isArray(report.rows)||report.rows.length!==s.players.length)fail('収支明細が不正です');
+      const report=s.cashReport,categories=['grant','base','rent','dividend','interest','principal','claims','stock','funding','other'];
+      if(report.version!==2||typeof report.id!=='string'||!integer(report.updatedRevision)||report.updatedRevision>s.revision||!integer(report.round)||report.round<1||report.round>24||!player(s,report.actor)||!['turn','round'].includes(report.kind)||typeof report.complete!=='boolean'||typeof report.partial!=='boolean'||typeof report.recording!=='boolean'||report.recording===report.complete||!Array.isArray(report.rows)||report.rows.length!==s.players.length)fail('収支明細が不正です');
+      const grant=report.startingGrant;if(!grant||grant.player!==report.actor||![0,C.grantAmount].includes(grant.amount)||!integer(grant.paid)||grant.paid>C.grantTurns||grant.remaining!==C.startingFunds-grant.paid*C.grantAmount)fail('明細の分割支給記録が不正です');
       const validEntries=row=>Array.isArray(row.entries)&&row.entries.every(e=>categories.includes(e.category)&&['in','out'].includes(e.direction)&&integer(e.amount)&&typeof e.label==='string');
       for(const [id,row] of report.rows.entries())if(row.player!==id||!integer(row.cashBefore)||!integer(row.cashAfter)||!integer(row.unpaidInterest)||!integer(row.transferredInterest)||!validEntries(row)||row.cashAfter-row.cashBefore!==cashTotals(row).net)fail('収支明細の金額が一致しません');
       if(report.forecast&&(!player(s,report.forecast.player)||!validEntries(report.forecast)))fail('収支見込みが不正です');
@@ -418,7 +437,7 @@
     if(s.phase!=='turn')return out;
     out.push({type:'buyHappy'});
     if(!s.mainUsed) {for(const p of s.properties.filter(p=>p.owner===null))out.push({type:'buyProperty',property:p.id});}
-    for(const c of s.companies)if(!s.mainUsed||s.tradeCompany===c.id) {
+    for(const c of s.companies)if(!s.mainUsed||s.tradeCompany) {
       out.push({type:'buyStock',company:c.id});for(const t of c.stocks.filter(t=>t.owner===id))out.push({type:'sellStock',company:c.id,stock:t.id});
     }
     if(!s.financeUsed) {
@@ -433,6 +452,6 @@
     for(const o of s.offers.filter(o=>o.lender===id))out.push({type:'cancelOffer',offer:o.id});
     out.push({type:'end'});return out;
   }
-  const E={create,dispatch,assertState,upgradeState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,dividends,buybackCount,forecast,cashTotals,happiness,happyPrice,money,spendable,creditProfile};
+  const E={create,dispatch,assertState,upgradeState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,portfolio,dividends,buybackCount,forecast,cashTotals,happiness,happyPrice,money,spendable,creditProfile};
   if(typeof module==='object'&&module.exports)module.exports=E;else root.LifeEngine=E;
 })(typeof globalThis==='object'?globalThis:this);
