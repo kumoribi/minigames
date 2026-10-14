@@ -19,15 +19,19 @@
     const r=E.dispatch(state,a);if(!r.ok){feedback(r.error);return;}
     if(a.type==='start'||a.type==='eventSkip'||(a.type==='end'&&!dueEmergency(state,state.active).length)){commit(a);return;}
     pending={...a,revision:state.revision};
+    $('stock-order').hidden=a.type!=='buyStock';
+    if(a.type==='buyStock'){$('stock-quantity').value=a.quantity??1;$('stock-order').dataset.company=a.company;}
+    $('commit').disabled=false;
     const before=E.current(state),after=E.player(r.state,before.id),c=state.companies.find(c=>c.id===a.company),next=r.state.companies.find(c=>c.id===a.company);
     let preview='<div class="preview"><span>現金</span><strong>'+amount(before.cash)+' → '+amount(after.cash)+'</strong><span>使用可能な現金</span><strong>'+amount(E.spendable(state,before.id))+' → '+amount(E.spendable(r.state,before.id))+'</strong>'+(c?'<span>'+esc(c.name)+' 株価</span><strong>'+amount(c.stocks.length)+' → '+amount(next.stocks.length)+'</strong>':'')+'<span>次回利息</span><strong>'+amount(E.nextInterest(state,before.id))+' → '+amount(E.nextInterest(r.state,before.id))+'</strong></div>';
+    if(a.type==='buyStock')preview+='<div class="preview"><span>購入株数</span><strong>'+(a.quantity??1)+'株</strong><span>購入総額</span><strong>'+amount(before.cash-after.cash)+'</strong></div>';
     if(a.type==='buyHappy')preview+='<div class="preview"><span>幸福ポイント</span><strong>'+E.happiness(state,before.id)+' → '+E.happiness(r.state,before.id)+'</strong><span>次の購入価格</span><strong>'+amount(E.happyPrice(r.state))+'</strong></div>';
     const newLoans=r.state.loans.filter(l=>!state.loans.some(old=>old.id===l.id)||state.loans.find(old=>old.id===l.id)?.principal!==l.principal);
     if(newLoans.length)preview+='<h3>この操作で成立する融資</h3>'+newLoans.map(l=>'<p>'+esc(name(l.borrower))+' ← '+esc(name(l.lender))+'：'+amount(l.principal)+'・'+l.rate+'%'+(l.emergency?'。緊急融資／第'+l.dueTurn+'手番末が期限':'。信用枠で借入／資産の拘束なし')+'</p>').join('');
     const eliminated=r.state.players.filter(p=>p.bankrupt&&!E.player(state,p.id).bankrupt);
     if(eliminated.length)preview+='<p class="danger">'+eliminated.map(p=>esc(p.name)).join('・')+'は返済不能により破産・脱落します。</p>';
     $('confirm-title').textContent=caption[a.type]||a.type;
-    $('confirm-body').innerHTML=preview+'<p>'+esc(note(a))+'</p>';$('confirm').showModal();
+    $('confirm-body').innerHTML=preview+'<p>'+esc(note(a))+'</p>';if(!$('confirm').open)$('confirm').showModal();
   }
   function note(a){
     if(a.type==='buyHappy')return '主行動・金融操作は消費しません。同じ手番で何度でも購入できます。次の1枚は購入後の価格になります。';
@@ -106,10 +110,24 @@
   });
   $('end').onclick=()=>state.phase==='finished'?showResult():request({type:state.phase==='ready'?'start':state.phase==='event'?'eventSkip':'end'});
   $('commit').onclick=()=>{const a=pending;pending=null;$('confirm').close();if(a&&!document.hidden&&!paused)commit(a);};
+  $('stock-quantity').oninput=()=>{
+    if(!$('confirm').open||$('stock-order').hidden)return;
+    const a={type:'buyStock',company:$('stock-order').dataset.company,quantity:Number($('stock-quantity').value),revision:state.revision};
+    const r=E.dispatch(state,a);
+    // Clear a stale valid order while keeping the quantity editable.
+    if(!r.ok){pending=null;$('commit').disabled=true;$('confirm-body').textContent=r.error;return;}
+    request(a);
+  };
   $('cancel').onclick=()=>{pending=null;$('confirm').close();schedule();};
   $('pause').onclick=()=>{if(blocked){feedback('保存状態を確認するため再読み込みしてください');return;}paused=!paused;render();};
   document.addEventListener('visibilitychange',()=>{if(document.hidden){paused=true;clearTimeout(timer);render();}});
   $('help').onclick=()=>{clearTimeout(timer);$('help-dialog').showModal();};$('close-help').onclick=()=>{$('help-dialog').close();schedule();};
+  $('events').onclick=()=>{
+    clearTimeout(timer);
+    $('event-list').innerHTML=LifeCards.events.map(([kind,title])=>'<article class="event-entry"><h3>'+esc(title)+'<span>'+LifeCards.eventCopies+'枚</span></h3><p>'+esc(LifeCards.eventDescriptions[kind])+'</p></article>').join('');
+    $('event-cards-dialog').showModal();
+  };
+  $('close-events').onclick=()=>$('event-cards-dialog').close();
   $('motion').checked=matchMedia('(prefers-reduced-motion: reduce)').matches;$('motion').onchange=()=>document.body.classList.toggle('reduced',$('motion').checked);
   document.querySelectorAll('dialog').forEach(d=>d.addEventListener('close',schedule));
   function setup(){clearTimeout(timer);$('setup').showModal();}

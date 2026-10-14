@@ -1,6 +1,6 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#172d2a"><meta name="description" content="投資か、いまの幸せか。24ラウンドの人生を描くカードボードゲーム。"><title>しあわせ投資録 | ミニゲーム集</title><link rel="manifest" href="../manifest.webmanifest"><link rel="stylesheet" href="style.css?v=4"></head>
-<body><main class="shell"><header><a href="../">‹ ミニゲーム集</a><div><button id="help">？ 遊び方</button><button id="new">新規</button></div></header>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#172d2a"><meta name="description" content="投資か、いまの幸せか。24ラウンドの人生を描くカードボードゲーム。"><title>しあわせ投資録 | ミニゲーム集</title><link rel="manifest" href="../manifest.webmanifest"><link rel="stylesheet" href="style.css?v=5"></head>
+<body><main class="shell"><header><a href="../">‹ ミニゲーム集</a><div><button id="help">？ 遊び方</button><button id="events">イベントカード一覧</button><button id="new">新規</button></div></header>
 <section class="hero"><p class="eyebrow">A LITTLE WEALTH, A GOOD LIFE</p><h1>しあわせ投資録<span>資産の先に、どんな人生を。</span></h1><div class="round"><strong id="age">22–24歳</strong><span id="round">1 / 24 ROUND</span></div></section>
 <div id="status" role="status" aria-live="polite"></div><section class="hud" id="hud" aria-label="プレイヤー情報"></section>
 <div class="layout"><section class="market"><div class="guide"><span id="turn"></span><p id="guide"></p><button id="pause">一時停止</button></div><section class="event" aria-label="今のイベント"><small>THIS SEASON</small><strong id="event-title">人生の準備をしましょう</strong><p id="event-detail">投資で資金を育てるか、早いうちに幸福を買うか。最後は幸福ポイントで勝負。</p></section>
@@ -9,10 +9,11 @@
 <footer class="actionbar"><div><strong id="action-title">準備ができたら開始</strong><span id="action-note">操作を確定するまで取引は行われません</span></div><button class="primary" id="end">ターン終了</button></footer>
 </main>
 <dialog id="setup"><form method="dialog"><p class="eyebrow">YOUR NEXT CHAPTER</p><h2>人生をはじめる</h2><p>24ラウンドで幸福を集める投資ボードゲーム。金額の単位は万円です。</p><label>プレイ人数<select id="count"><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option></select></label><label>プレイ方法<select id="mode"><option value="ai">あなた＋対戦AI</option><option value="human">同じ端末で交代</option></select></label><div class="dialog-actions"><button value="cancel">戻る</button><button value="start" class="primary">この設定で準備</button></div></form></dialog>
-<dialog id="confirm"><h2 id="confirm-title"></h2><div id="confirm-body"></div><div class="dialog-actions"><button id="cancel">キャンセル</button><button id="commit" class="primary">確定する</button></div></dialog>
+<dialog id="confirm"><h2 id="confirm-title"></h2><div id="stock-order" hidden><label>購入株数<input id="stock-quantity" type="number" inputmode="numeric" min="1" step="1" value="1"></label><p>1株ずつ値上がりする価格で購入します。</p></div><div id="confirm-body" aria-live="polite"></div><div class="dialog-actions"><button id="cancel">キャンセル</button><button id="commit" class="primary">確定する</button></div></dialog>
+<dialog id="event-cards-dialog"><h2 tabindex="-1" autofocus>イベントカード一覧</h2><p>12種類・各2枚、合計24枚。開始時にシャッフルし、各ラウンドに1枚引きます。対象がない効果は発生しません。</p><div id="event-list"></div><button id="close-events" class="primary">閉じる</button></dialog>
 <dialog id="help-dialog"><h2>資金と信用で、人生を選ぶ</h2>
 <p>初期資金500万円。幸福の初期価格は10万円。24ラウンド終了時に、生存者の中で幸福最多が勝利。同点は共同勝利。最後の生存者は即勝利、全員脱落は勝者なし。</p>
-<h3>行動と売買</h3><p>イベント → 全員の手番 → 基礎収入・家賃 → 利息。主行動は不動産1件・株式売買のどちらか。幸福購入は主行動・金融操作を消費せず、自分の通常手番中に何度でも可能です。株は最初に選んだ1銘柄だけ、同じ手番に何度でも売買できます。金融操作は1回。強制調達と期限到来の自動返済は別枠です。</p>
+<h3>行動と売買</h3><p>イベント → 全員の手番 → 基礎収入・家賃 → 利息。主行動は不動産1件・株式売買のどちらか。幸福購入は主行動・金融操作を消費せず、自分の通常手番中に何度でも可能です。株の購入確認では株数を指定してまとめて購入できます。1株ごとの値上がり・取得価格は同じです。株は最初に選んだ1銘柄だけ、同じ手番に何度でも売買できます。金融操作は1回。強制調達と期限到来の自動返済は別枠です。</p>
 <h3>6社の株式と幸福</h3><p>株価はNPC分を含むカード枚数で、0万円まで下がります。追加後の価格で購入、除去後の価格で売却し、取得原価は固定。幸福は現在価格で1枚ずつ購入、購入ごとに値上がりし、売却不可。資金・純資産条件と資産整理中の購入禁止は維持します。NPC幸福も永久に価格を上げます。</p>
 <h3>6種類の不動産</h3><p>400・1,500・5,000万円、1・3・10億円の6種類。家賃は取得額の5%／ラウンド、入居中のみ受領。売却イベントの受益者だけ1件を取得額±20%で任意売却。借入中でも売却できます。</p>
 <h3>資産を拘束しない信用枠</h3><p>融資額・契約数の一律上限はありません。現金は全額使え、株や不動産も借入中だからという理由では売却を制限しません。不動産の売却は引き続きイベント時だけです。</p>
@@ -29,4 +30,4 @@
 <dialog id="legacy-dialog"><h2>旧ルールの保存が残っています</h2><p>旧版の人生は上書きしません。信用枠ルールでは資産を拘束せず借りられます。旧版の人生は従来のルールで続けられます。</p><div class="dialog-actions"><div id="legacy-links"></div><button id="legacy-new" class="primary">新ルールで始める</button></div></dialog>
 <dialog id="resume"><h2>前回の人生が残っています</h2><p id="resume-detail"></p><div class="dialog-actions"><button id="fresh">新しく始める</button><button class="primary" id="continue">続きから</button></div></dialog>
 <dialog id="result"><p class="eyebrow">A LIFE WELL LIVED</p><h2 id="result-title"></h2><div id="result-body"></div><div class="dialog-actions"><button id="view-result">盤面を見る</button><button id="again" class="primary">もう一度</button></div></dialog>
-<script src="cards.js?v=4"></script><script src="engine.js?v=4"></script><script src="ai.js?v=4"></script><script src="storage.js?v=4"></script><script src="game.js?v=4"></script><script>if('serviceWorker' in navigator)navigator.serviceWorker.register('../service-worker.js',{scope:'../'}).catch(()=>{});</script></body></html>
+<script src="cards.js?v=5"></script><script src="engine.js?v=5"></script><script src="ai.js?v=5"></script><script src="storage.js?v=5"></script><script src="game.js?v=5"></script><script>if('serviceWorker' in navigator)navigator.serviceWorker.register('../service-worker.js',{scope:'../'}).catch(()=>{});</script></body></html>

@@ -22,6 +22,32 @@ test('middle sale preserves cost/owners; round trip cannot create cash',()=>{
 test('zero price, NPC declines below initial and atomic illegal actions',()=>{
  let s=make();s.companies[0].stocks=[];s=act(s,{type:'buyStock',company:'sun'});assert.equal(s.players[0].cash,499);s=act(s,{type:'sellStock',company:'sun',stock:E.stocks(s,0)[0].id});assert.equal(s.players[0].cash,499);reject(s,{type:'sellStock',company:'sun',stock:'missing'});reject(s,{type:'end',revision:99});
 });
+test('bulk stock order equals sequential purchases including cards, costs, logs and trade count',()=>{
+ for(const cid of ['sun','wave','space'])for(const quantity of [1,3,5,10]){
+  const initial=make();let sequential=initial;
+  for(let i=0;i<quantity;i++)sequential=act(sequential,{type:'buyStock',company:cid});
+  const bulk=act(initial,{type:'buyStock',company:cid,quantity});
+  sequential.revision=bulk.revision;assert.deepEqual(bulk,sequential);
+  reject(bulk,{type:'buyStock',company:cid==='sun'?'wave':'sun',quantity:2});
+ }
+ let s=make();s.players[0].cash=24;s=act(s,{type:'buyStock',company:'sun',quantity:3});
+ assert.equal(s.players[0].cash,0);assert.deepEqual(E.stocks(s,0).map(t=>t.cost),[7,8,9]);
+ s=act(s,{type:'sellStock',company:'sun',stock:E.stocks(s,0)[1].id});assert.equal(s.players[0].cash,8);assert.deepEqual(E.stocks(s,0).map(t=>t.cost),[7,9]);
+});
+test('invalid or unaffordable bulk orders are atomic and revision guard prevents duplicate purchase',()=>{
+ const s=make();s.players[0].cash=23;
+ for(const quantity of [0,-1,1.5,NaN,Infinity,'3',null,Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER+1,3])reject(s,{type:'buyStock',company:'sun',quantity});
+ const a={type:'buyStock',company:'sun',quantity:2,revision:s.revision};const next=act(s,a);reject(next,a);
+ s.phase='ready';reject(s,{type:'buyStock',company:'sun',quantity:2});
+});
+test('event reference covers exactly the actual deck kinds and copy counts for every seed',()=>{
+ const C=require('./cards.js');assert.equal(C.events.length,12);assert.equal(C.eventCopies,2);assert(!Object.keys(C).includes('eventCopies'));assert(!Object.keys(C).includes('eventDescriptions'));assert.deepEqual(Object.keys(C.eventDescriptions).sort(),C.events.map(e=>e[0]).sort());
+ for(let seed=0;seed<25;seed++){
+  const s=E.create(seed);assert.equal(s.deck.length,24);
+  for(const [kind] of C.events){assert.equal(s.deck.filter(e=>e.kind===kind).length,C.eventCopies);assert(C.eventDescriptions[kind].length>15);}
+ }
+});
+
 test('credit leaves all cash usable; borrowed cash does not create more credit',()=>{
  let s=make();assert.equal(E.creditProfile(s,0).remaining,500);
  s=act(s,{type:'borrow',offer:s.offers[0].id});assert.equal(s.players[0].cash,700);assert.equal(E.spendable(s,0),700);

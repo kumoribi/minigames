@@ -49,7 +49,7 @@
       companies:C.companies.map(c=>({...c,stocks:[]})),properties:C.properties.map(p=>({...p,owner:null,occupied:true,cost:0})),happiness:[],loans:[],claims:[],offers:[],deck:[],event:null,pending:null,settlement:null,log:[],winners:[]};
     for(const c of s.companies)for(let i=0;i<c.initial;i++)addStock(s,c,'npc',null);
     for(const o of C.bankCards)s.offers.push({...o,id:uid(s),lender:'bank'});
-    for(const [kind,name] of C.events)for(let i=0;i<2;i++)s.deck.push({id:uid(s),kind,name});
+    for(const [kind,name] of C.events)for(let i=0;i<C.eventCopies;i++)s.deck.push({id:uid(s),kind,name});
     for(let i=s.deck.length-1;i>0;i--){const j=Math.floor(random(s)*(i+1));[s.deck[i],s.deck[j]]=[s.deck[j],s.deck[i]];}
     s.leader=Math.floor(random(s)*s.players.length);s.active=s.leader;return s;
   }
@@ -255,7 +255,15 @@
     }
     if(a.type==='buyStock'||a.type==='sellStock') {
       if(!c)fail('会社が不正です');main(s,c.id);
-      if(a.type==='buyStock'){const n=c.stocks.length+1;pay(s,p.id,'bank',n);addStock(s,c,p.id,n);log(s,p.name+'が'+c.name+'を'+n+'万円で購入');}
+      if(a.type==='buyStock'){
+        const quantity=a.quantity===undefined?1:a.quantity;
+        if(!Number.isSafeInteger(quantity)||quantity<1)fail('購入株数は1以上の整数で指定してください');
+        const q=BigInt(quantity),total=q*BigInt(c.stocks.length)+q*(q+1n)/2n;
+        if(total>BigInt(p.cash))fail('使用可能な現金が不足しています');
+        // Keep each card, price, acquisition cost and log identical to sequential purchases.
+        for(let i=0;i<quantity;i++){const n=c.stocks.length+1;pay(s,p.id,'bank',n);addStock(s,c,p.id,n);log(s,p.name+'が'+c.name+'を'+n+'万円で購入');}
+        s.tradeCount+=quantity-1;
+      }
       else sellStock(s,c,a.stock);
       s.mainUsed=true;s.tradeCompany=c.id;s.tradeCount++;return;
     }
