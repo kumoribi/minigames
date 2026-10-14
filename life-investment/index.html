@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#172d2a"><meta name="description" content="投資か、いまの幸せか。24ラウンドの人生を描くカードボードゲーム。"><title>しあわせ投資録 | ミニゲーム集</title><link rel="manifest" href="../manifest.webmanifest"><link rel="stylesheet" href="style.css?v=2"></head>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#172d2a"><meta name="description" content="投資か、いまの幸せか。24ラウンドの人生を描くカードボードゲーム。"><title>しあわせ投資録 | ミニゲーム集</title><link rel="manifest" href="../manifest.webmanifest"><link rel="stylesheet" href="style.css?v=3"></head>
 <body><main class="shell"><header><a href="../">‹ ミニゲーム集</a><div><button id="help">？ 遊び方</button><button id="new">新規</button></div></header>
 <section class="hero"><p class="eyebrow">A LITTLE WEALTH, A GOOD LIFE</p><h1>しあわせ投資録<span>資産の先に、どんな人生を。</span></h1><div class="round"><strong id="age">22–24歳</strong><span id="round">1 / 24 ROUND</span></div></section>
 <div id="status" role="status" aria-live="polite"></div><section class="hud" id="hud" aria-label="プレイヤー情報"></section>
@@ -14,18 +14,19 @@
 <p>初期資金500万円。幸福の初期価格は10万円。24ラウンド終了時に、生存者の中で幸福最多が勝利。同点は共同勝利。最後の生存者は即勝利、全員脱落は勝者なし。</p>
 <h3>行動と売買</h3><p>イベント → 全員の手番 → 基礎収入・家賃 → 利息。主行動は幸福1枚・不動産1件・株式売買のどれか。株は最初に選んだ1銘柄だけ、同じ手番に何度でも売買できます。金融操作は1回。強制調達と期限到来の自動返済は別枠です。</p>
 <h3>6社の株式と幸福</h3><p>株価はNPC分を含むカード枚数で、0万円まで下がります。追加後の価格で購入、除去後の価格で売却し、取得原価は固定。幸福は現在価格で購入、売却不可。NPC幸福も永久に価格を上げます。</p>
-<h3>6種類の不動産</h3><p>400・1,500・5,000万円、1・3・10億円の6種類。家賃は取得額の5%／ラウンド、入居中のみ受領。売却イベントの受益者だけ1件を取得額±20%で任意売却。担保物件は売れません。</p>
-<h3>通常融資と担保</h3><p>融資額・契約数の一律上限はありません。未使用の株処分評価50%＋不動産取得額50%＋現金100%が融資枠。資産ごとに契約へ割り当て、重複担保は禁止。担保の現金は支払に使えず、株・不動産は売れません。完済で解除、借り換えでは再割当します。</p>
-<p>借入金を現金担保として循環利用させないため、現金担保の追加可能額は「現金−全債務−担保済み現金」の0以上の部分として保守的に計算します。物件、株、現金の順で自動割当。利息は契約ごとに1万円未満切り捨てです。</p>
+<h3>6種類の不動産</h3><p>400・1,500・5,000万円、1・3・10億円の6種類。家賃は取得額の5%／ラウンド、入居中のみ受領。売却イベントの受益者だけ1件を取得額±20%で任意売却。借入中でも売却できます。</p>
+<h3>資産を拘束しない信用枠</h3><p>融資額・契約数の一律上限はありません。現金は全額使え、株や不動産も借入中だからという理由では売却を制限しません。不動産の売却は引き続きイベント時だけです。</p>
+<p>自己現金評価＝max(0,現金−借入・残債)。信用上限＝株の全処分評価50%＋不動産取得額50%＋自己現金評価100%。追加融資枠＝max(0,信用上限−借入・残債)。借入金を現金評価から除き、既存債務の利用分も差し引くため、借りただけで融資枠は増えません。</p>
+<p>例：現金500万円から200万円借りると、使える現金は700万円、追加融資枠は300万円。資産が減って枠を超えても即時回収せず、新規借入だけを制限します。利息・緊急期限は引き続き必要です。</p>
 <h3>プレイヤー融資カード</h3><p>元本と0～20%（小数第2位まで）の金利を指定して場へ置きます。相手の指定・事前の元本確保は不要。カードは取下げ・借入成立・貸し手脱落まで残ります。自分のカードは借りられません。</p>
-<p>実際に貸す時に現金不足なら、未使用担保で利用できる自分以外のカードを低金利順に強制利用。足りなければ緊急融資で不足分を調達します。同じプレイヤーへ循環する経路は使いません。貸し手の金融行動済みでも強制調達は発生します。借入確認画面に連鎖する契約を表示します。</p>
+<p>実際に貸す時に現金不足なら、追加融資枠で利用できる自分以外のカードを低金利順に強制利用。足りなければ緊急融資で不足分を調達します。同じプレイヤーへ循環する経路は使いません。貸し手の金融行動済みでも強制調達は発生します。借入確認画面に連鎖する契約を表示します。</p>
 <h3>緊急融資：期限と脱落</h3><p>常時補充・無担保・20%／ラウンド。借りた後の次の自分の手番終了時に元本と未払利息を払えないと破産・脱落。初回利息がまだ支払われていなければ完済時に支払います。通常カードへ同額元本で借り換え可能（同金利20%も可）。</p>
 <p>緊急融資の借り直しによる期限延長は禁止。強制調達で既存の緊急融資に追加が生じても期限は変えません。手番終了時の返済は自動で金融枠を消費しません。最終決算でも未返済の緊急融資を判定します。</p>
 <p>通常の利払い不足は株売却・緊急融資・資産整理で処理。緊急融資がある状態で支払不能を選ぶと脱落。脱落者の手番・新規収入・融資カードは停止し、幸福は勝利点から除外します。不動産の強制売却は行いません。</p>
-<h3>保存・旧ルール・停止</h3><p>新ルールは専用v2キーに自動保存。旧ルールv1の保存は上書きせず、下の旧版入口から再開できます。タブを離れるとAIも停止し手動再開。放置時間で収入や市場は進みません。新しいルールは新規ゲームに適用します。</p>
-<p><a href="legacy/">旧ルール v1 で続きから</a></p>
+<h3>保存・旧ルール・停止</h3><p>信用枠ルールは専用v3キーに自動保存。旧ルールv1・v2の保存は上書きせず、下の旧版入口から再開できます。タブを離れるとAIも停止し手動再開。放置時間で収入や市場は進みません。新しいルールは新規ゲームに適用します。</p>
+<p><a href="legacy-v2/">旧ルール v2（資産拘束あり）で続きから</a></p><p><a href="legacy/">旧ルール v1 で続きから</a></p>
 <label><input type="checkbox" id="sound"> 効果音（初期OFF）</label><label><input type="checkbox" id="motion"> 演出を軽減</label><button id="close-help" class="primary">閉じる</button></dialog>
-<dialog id="legacy-dialog"><h2>旧ルールの保存が残っています</h2><p>旧版の人生は上書きしません。新ルールは初期資金500万円・6社・融資カード市場で新しく始められます。</p><div class="dialog-actions"><a class="legacy-link" href="legacy/">旧ルールで続きから</a><button id="legacy-new" class="primary">新ルールで始める</button></div></dialog>
+<dialog id="legacy-dialog"><h2>旧ルールの保存が残っています</h2><p>旧版の人生は上書きしません。信用枠ルールでは資産を拘束せず借りられます。旧版の人生は従来のルールで続けられます。</p><div class="dialog-actions"><div id="legacy-links"></div><button id="legacy-new" class="primary">新ルールで始める</button></div></dialog>
 <dialog id="resume"><h2>前回の人生が残っています</h2><p id="resume-detail"></p><div class="dialog-actions"><button id="fresh">新しく始める</button><button class="primary" id="continue">続きから</button></div></dialog>
 <dialog id="result"><p class="eyebrow">A LIFE WELL LIVED</p><h2 id="result-title"></h2><div id="result-body"></div><div class="dialog-actions"><button id="view-result">盤面を見る</button><button id="again" class="primary">もう一度</button></div></dialog>
-<script src="cards.js?v=2"></script><script src="engine.js?v=2"></script><script src="ai.js?v=2"></script><script src="storage.js?v=2"></script><script src="game.js?v=2"></script><script>if('serviceWorker' in navigator)navigator.serviceWorker.register('../service-worker.js',{scope:'../'}).catch(()=>{});</script></body></html>
+<script src="cards.js?v=3"></script><script src="engine.js?v=3"></script><script src="ai.js?v=3"></script><script src="storage.js?v=3"></script><script src="game.js?v=3"></script><script>if('serviceWorker' in navigator)navigator.serviceWorker.register('../service-worker.js',{scope:'../'}).catch(()=>{});</script></body></html>

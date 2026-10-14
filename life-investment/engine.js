@@ -24,36 +24,16 @@
   function stockValue(s,id) {
     return s.companies.reduce((sum,c) => {const k=c.stocks.filter(t=>t.owner===id).length;return sum+k*(c.stocks.length-1)-k*(k-1)/2;},0);
   }
-  function pledged(s,id,excluding=null) {
-    const result={cash:0,stocks:new Set(),properties:new Set()};
-    for(const l of s.loans.filter(l=>l.borrower===id && l.id!==excluding)) {
-      result.cash+=l.collateral.cash;
-      l.collateral.stockIds.forEach(x=>result.stocks.add(x));
-      l.collateral.propertyIds.forEach(x=>result.properties.add(x));
-    }
-    return result;
-  }
-  const spendable = (s,id,excluding=null) => Math.max(0,player(s,id).cash-pledged(s,id,excluding).cash);
-  function availableCollateral(s,id,excluding=null) {
-    const p=player(s,id),used=pledged(s,id,excluding),stockUnits=[];
-    for(const c of s.companies) {
-      const own=c.stocks.filter(t=>t.owner===id);
-      own.forEach((t,i)=>{if(!used.stocks.has(t.id))stockUnits.push({id:t.id,value:Math.floor((c.stocks.length-1-i)/2)});});
-    }
-    const propertyUnits=s.properties.filter(p=>p.owner===id&&!used.properties.has(p.id)).map(p=>({id:p.id,value:money(p.cost,50)}));
-    // Borrowed cash cannot be recursively pledged. This is a conservative equity-cash test.
-    const cash=Math.max(0,p.cash-debt(s,id)-used.cash);
-    return {cash,stocks:stockUnits,properties:propertyUnits,total:cash+stockUnits.reduce((n,x)=>n+x.value,0)+propertyUnits.reduce((n,x)=>n+x.value,0)};
-  }
-  function allocateCollateral(s,id,n,excluding=null) {
-    const free=availableCollateral(s,id,excluding);
-    if(free.total<n)fail('未使用の担保が不足しています（融資枠 '+free.total+'万円）');
-    // Non-cash assets first to preserve usable liquidity. A pledged asset is indivisible.
-    const out={cash:0,stockIds:[],propertyIds:[],value:0};
-    for(const [units,key] of [[free.properties,'propertyIds'],[free.stocks,'stockIds']])
-      for(const u of units)if(out.value<n&&u.value>0){out[key].push(u.id);out.value+=u.value;}
-    if(out.value<n){out.cash=n-out.value;out.value+=out.cash;}
-    return out;
+  // Credit is an eligibility check, never an asset lock or spending reservation.
+  const spendable = (s,id) => player(s,id).cash;
+  function creditProfile(s,id) {
+    const outstanding=debt(s,id);
+    const stock=money(stockValue(s,id),50);
+    const property=s.properties.filter(p=>p.owner===id).reduce((n,p)=>n+money(p.cost,50),0);
+    // Exclude borrowed cash from cash valuation, then deduct existing debt from the credit limit.
+    const ownCash=Math.max(0,player(s,id).cash-outstanding);
+    const limit=stock+property+ownCash;
+    return {stock,property,ownCash,limit,outstanding,remaining:Math.max(0,limit-outstanding)};
   }
   function random(s) {
     let t=s.rng=(s.rng+0x6D2B79F5)>>>0;
@@ -64,7 +44,7 @@
   function addStock(s,c,owner,cost) {c.stocks.push({id:uid(s),company:c.id,owner,cost,round:s.round});}
   function create(seed=Date.now()>>>0,controllers=['human','ai']) {
     if(controllers.length<2||controllers.length>4||controllers.some(x=>!['human','ai'].includes(x)))fail('人数は2～4人です');
-    const s={schemaVersion:2,rulesVersion:2,config:copy(C),gameId:'life2-'+seed+'-'+Date.now(),seed:seed>>>0,rng:seed>>>0,nextId:1,revision:0,phase:'ready',round:1,active:0,leader:0,turnOrder:[],turnIndex:0,mainUsed:false,tradeCompany:null,tradeCount:0,financeUsed:false,
+    const s={schemaVersion:3,rulesVersion:3,config:copy(C),gameId:'life3-'+seed+'-'+Date.now(),seed:seed>>>0,rng:seed>>>0,nextId:1,revision:0,phase:'ready',round:1,active:0,leader:0,turnOrder:[],turnIndex:0,mainUsed:false,tradeCompany:null,tradeCount:0,financeUsed:false,
       players:controllers.map((controller,id)=>({id,name:controller==='ai'?'投資家AI '+id:'プレイヤー '+(id+1),controller,cash:C.cash,rehab:false,bankrupt:false,turns:0})),
       companies:C.companies.map(c=>({...c,stocks:[]})),properties:C.properties.map(p=>({...p,owner:null,occupied:true,cost:0})),happiness:[],loans:[],claims:[],offers:[],deck:[],event:null,pending:null,settlement:null,log:[],winners:[]};
     for(const c of s.companies)for(let i=0;i<c.initial;i++)addStock(s,c,'npc',null);
@@ -75,7 +55,7 @@
   }
   function pay(s,from,to,n,excluding=null) {
     if(!integer(n))fail('金額が不正です');
-    const p=player(s,from);if(p&&spendable(s,from,excluding)<n)fail('使用可能な現金が'+(n-spendable(s,from,excluding))+'万円不足しています（担保現金は使用不可）');
+    const p=player(s,from);if(p&&spendable(s,from,excluding)<n)fail('使用可能な現金が'+(n-spendable(s,from,excluding))+'万円不足しています');
     if(p)p.cash-=n;const q=player(s,to);if(q)q.cash+=n;
   }
   function main(s,company=null) {
@@ -83,8 +63,8 @@
     if(s.mainUsed&&(!company||s.tradeCompany!==company))fail(s.tradeCompany?'この手番は'+s.companies.find(c=>c.id===s.tradeCompany).name+'だけ売買できます':'主行動は使用済みです');
   }
   function finance(s) {if(s.phase!=='turn'||current(s).bankrupt)fail('金融操作できません');if(s.financeUsed)fail('金融操作は使用済みです');}
-  function newLoan(s,borrower,lender,principal,rate,collateral,emergency=false) {
-    const l={id:uid(s),borrower,lender,principal,rate,collateral,emergency,round:s.round,interestPayments:0,arrears:0,dueTurn:emergency?player(s,borrower).turns+1:null};
+  function newLoan(s,borrower,lender,principal,rate,creditAtIssue,emergency=false) {
+    const l={id:uid(s),borrower,lender,principal,rate,creditAtIssue,emergency,round:s.round,interestPayments:0,arrears:0,dueTurn:emergency?player(s,borrower).turns+1:null};
     l.initialInterestDue=emergency?interest(l):0;
     s.loans.push(l);return l;
   }
@@ -94,12 +74,12 @@
     if(existing&&!forced)fail('緊急融資の追加借入・借り直しはできません');
     if(player(s,id).bankrupt)fail('脱落者は借り入れできません');
     if(existing) {existing.principal+=n;existing.initialInterestDue+=money(n,20);log(s,player(s,id).name+'の強制調達 '+n+'万円を緊急融資へ追加。期限は延長しません');}
-    else {newLoan(s,id,'bank',n,20,{cash:0,stockIds:[],propertyIds:[],value:0},true);log(s,player(s,id).name+'が無担保の緊急融資 '+n+'万円・20%（次の自分の手番末が期限）');}
+    else {newLoan(s,id,'bank',n,20,null,true);log(s,player(s,id).name+'が無担保の緊急融資 '+n+'万円・20%（次の自分の手番末が期限）');}
     pay(s,'bank',id,n);
   }
   function eligibleOffer(s,id,o) {
     if(o.lender===id||(o.lender!=='bank'&&player(s,o.lender).bankrupt)||player(s,id).rehab)return false;
-    return availableCollateral(s,id).total>=o.principal;
+    return creditProfile(s,id).remaining>=o.principal;
   }
   function ensureFunding(s,id,required,path) {
     const p=player(s,id);
@@ -112,12 +92,12 @@
   }
   function takeOffer(s,id,offerId,path=[]) {
     const o=s.offers.find(o=>o.id===offerId);
-    if(!o||!eligibleOffer(s,id,o))fail('この融資は利用できません。未使用担保と貸し手を確認してください');
+    if(!o||!eligibleOffer(s,id,o))fail('この融資は利用できません。追加融資枠と貸し手を確認してください');
     if(path.includes(id))fail('融資の循環を検出しました');
-    const collateral=allocateCollateral(s,id,o.principal);
-    // Remove and reserve before recursion: the same offer and collateral cannot be reused.
+    const creditAtIssue=creditProfile(s,id);
+    // Reserve the card and record the debt before recursion so the same credit cannot be used twice.
     s.offers=s.offers.filter(x=>x.id!==o.id);
-    const contract=newLoan(s,id,o.lender,o.principal,o.rate,collateral);
+    const contract=newLoan(s,id,o.lender,o.principal,o.rate,creditAtIssue);
     if(o.lender!=='bank')ensureFunding(s,o.lender,o.principal,[...path,id]);
     pay(s,o.lender,id,o.principal);
     log(s,player(s,id).name+'が'+(o.lender==='bank'?'銀行':player(s,o.lender).name)+'から'+o.principal+'万円・'+o.rate+'%で借入');
@@ -128,15 +108,15 @@
     const n=repaymentTotal(l);
     pay(s,l.borrower,s.settlement?'bank':l.lender,n,l.id);
     if(s.settlement)s.settlement.receipts.push({to:l.lender,n});
-    s.loans=s.loans.filter(x=>x.id!==l.id);log(s,player(s,l.borrower).name+'が'+l.principal+'万円を完済。担保を解除');
+    s.loans=s.loans.filter(x=>x.id!==l.id);log(s,player(s,l.borrower).name+'が'+l.principal+'万円を完済。借入残高を更新');
   }
   function refinance(s,id,loanId,offerId) {
     const old=s.loans.find(l=>l.id===loanId&&l.borrower===id),o=s.offers.find(o=>o.id===offerId);
     if(!old||!o||o.lender===id||o.principal!==old.principal||o.rate>old.rate||(!old.emergency&&o.rate===old.rate))fail('同額元本で低金利のカードを選んでください（緊急融資は同金利も可）');
     const due=repaymentTotal(old)-old.principal;
-    // Explicit replacement atomically releases old collateral. A failed funding chain rolls back.
+    // Replace the old debt atomically. A failed funding chain rolls back the entire transaction.
     s.loans=s.loans.filter(l=>l.id!==old.id);
-    if(!eligibleOffer(s,id,o))fail('借り換え先の担保が不足しています');
+    if(!eligibleOffer(s,id,o))fail('借り換え先の信用枠が不足しています');
     const l=takeOffer(s,id,offerId);
     // A forced emergency to this borrower must never finance the old emergency's repayment.
     if(old.emergency&&s.loans.some(x=>x.borrower===id&&x.emergency))fail('緊急融資で緊急融資を返済できません');
@@ -163,8 +143,7 @@
     else {
       const rate=e.kind==='salePlus'?20:-20;
       detail=current(s).name+'に不動産売却機会 '+(rate>0?'＋':'')+rate+'%';
-      const locked=pledged(s,s.active).properties;
-      if(s.properties.some(p=>p.owner===s.active&&!locked.has(p.id))){s.phase='event';s.pending={owner:s.active,rate,eventId:e.id};}
+      if(s.properties.some(p=>p.owner===s.active)){s.phase='event';s.pending={owner:s.active,rate,eventId:e.id};}
       else detail+='（売却可能な所有物件なし）';
     }
     e.detail=detail;log(s,e.name+'：'+detail);
@@ -172,7 +151,6 @@
   function sellStock(s,c,stockId) {
     const i=c.stocks.findIndex(t=>t.id===stockId&&t.owner===s.active);
     if(i<0)fail('自分の株を選んでください');
-    if(pledged(s,s.active).stocks.has(stockId))fail('担保の株は完済・借り換えで解除するまで売却できません');
     const t=c.stocks[i];c.stocks.splice(i,1);pay(s,'bank',s.active,c.stocks.length);
     log(s,current(s).name+'が'+c.name+'を'+c.stocks.length+'万円で売却（損益'+(c.stocks.length-t.cost)+'万円）');
   }
@@ -256,7 +234,6 @@
       if(s.phase!=='event'||!s.pending)fail('売却イベントが必要です');
       if(a.type==='eventSell') {
         if(!prop||prop.owner!==p.id)fail('自分の物件を選んでください');
-        if(pledged(s,p.id).properties.has(prop.id))fail('担保の不動産は売却できません');
         const n=money(prop.cost,100+s.pending.rate);pay(s,'bank',p.id,n);log(s,prop.name+'を'+n+'万円で売却');prop.owner=null;prop.cost=0;
       }
       s.pending=null;s.phase='turn';return;
@@ -312,7 +289,7 @@
     const s=copy(state);try{execute(s,action);s.revision++;assertState(s);return {ok:true,state:s};}catch(e){return {ok:false,error:e.message,state};}
   }
   function assertState(s) {
-    if(s.schemaVersion!==2||s.rulesVersion!==2)fail('旧ルールの保存です。旧版の入口から再開してください');
+    if(s.schemaVersion!==3||s.rulesVersion!==3)fail('旧ルールの保存です。旧版の入口から再開してください');
     if(JSON.stringify(s.config)!==JSON.stringify(C))fail('保存された設定が対応ルールと一致しません');
     if(!['ready','turn','event','rescue','finished'].includes(s.phase)||!integer(s.round)||s.round<1||s.round>24||!integer(s.revision)||!integer(s.nextId)||!integer(s.rng))fail('進行状態が不正です');
     if(!Array.isArray(s.players)||s.players.length<2||s.players.length>4||s.players.some((p,i)=>p.id!==i||!integer(p.cash)||!integer(p.turns)||!['human','ai'].includes(p.controller)||typeof p.bankrupt!=='boolean')||!player(s,s.active))fail('プレイヤー状態が不正です');
@@ -331,16 +308,18 @@
     for(const o of [...s.offers,...s.loans]) {
       check(o);if(!lender(o.lender)||!integer(o.principal)||o.principal<1||!Number.isFinite(o.rate)||o.rate<0||o.rate>20)fail('融資カードが不正です');
     }
-    const lockedStocks=new Set(),lockedProperties=new Set();
     for(const l of s.loans) {
       if(!player(s,l.borrower)||l.lender===l.borrower||!integer(l.arrears)||!integer(l.interestPayments)||!integer(l.initialInterestDue))fail('契約が不正です');
-      const c=l.collateral;if(!c||!integer(c.cash)||!integer(c.value)||(!l.emergency&&c.value<l.principal))fail('担保契約が不正です');
-      if(l.emergency&&(!integer(l.dueTurn)||l.dueTurn<1||l.rate!==20||c.cash||c.stockIds.length||c.propertyIds.length))fail('緊急融資の条件が不正です');
-      for(const id of c.stockIds){if(lockedStocks.has(id)||!stocks(s,l.borrower).some(t=>t.id===id))fail('株の担保が重複・欠損しています');lockedStocks.add(id);}
-      for(const id of c.propertyIds){if(lockedProperties.has(id)||!s.properties.some(p=>p.id===id&&p.owner===l.borrower))fail('不動産の担保が重複・欠損しています');lockedProperties.add(id);}
+      if('collateral' in l)fail('資産拘束型の旧契約が混在しています');
+      const credit=l.creditAtIssue;
+      if(l.emergency) {
+        if(credit!==null||!integer(l.dueTurn)||l.dueTurn<1||l.rate!==20)fail('緊急融資の条件が不正です');
+      } else {
+        if(!credit||['stock','property','ownCash','limit','outstanding','remaining'].some(k=>!integer(credit[k]))||credit.limit!==credit.stock+credit.property+credit.ownCash||credit.remaining!==Math.max(0,credit.limit-credit.outstanding)||credit.remaining<l.principal)fail('契約時の信用評価が不正です');
+      }
     }
     for(const c of s.claims){check(c);if(!player(s,c.borrower)||!lender(c.lender)||!integer(c.amount)||c.amount<1)fail('残債が不正です');}
-    for(const p of s.players)if(pledged(s,p.id).cash>p.cash||!integer(debt(s,p.id)))fail('現金担保・債務が不正です');
+    for(const p of s.players)if(!integer(debt(s,p.id)))fail('債務が不正です');
     if(s.phase==='turn'&&current(s).bankrupt)fail('脱落者に手番があります');
     if(s.tradeCompany&&!s.companies.some(c=>c.id===s.tradeCompany))fail('売買銘柄が不正です');
     if(s.phase==='event'&&(!s.pending||s.pending.owner!==s.active))fail('イベント選択状態が不正です');
@@ -372,6 +351,6 @@
     for(const o of s.offers.filter(o=>o.lender===id))out.push({type:'cancelOffer',offer:o.id});
     out.push({type:'end'});return out;
   }
-  const E={create,dispatch,assertState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,happiness,happyPrice,money,pledged,spendable,availableCollateral};
+  const E={create,dispatch,assertState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,happiness,happyPrice,money,spendable,creditProfile};
   if(typeof module==='object'&&module.exports)module.exports=E;else root.LifeEngine=E;
 })(typeof globalThis==='object'?globalThis:this);
