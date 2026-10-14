@@ -1,96 +1,118 @@
 'use strict';
-const assert=require('node:assert/strict');
+const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const E=require('./engine.js'),AI=require('./ai.js');
-let checks=0;
-const test=(name,fn)=>{fn();checks++;console.log('PASS',name);};
-const make=()=>{const s=E.create(17,['human','human']);s.phase='turn';s.active=0;s.leader=0;s.turn=0;return s;};
-const apply=(s,a)=>{const r=E.dispatch(s,a);assert.equal(r.ok,true,r.error);return r.state;};
-const reject=(s,a)=>{const snapshot=JSON.stringify(s),r=E.dispatch(s,a);assert.equal(r.ok,false);assert.equal(r.state,s);assert.equal(JSON.stringify(s),snapshot);return r.error;};
-function give(s,id,count,company='sun'){const c=s.companies.find(c=>c.id===company);for(let i=0;i<count;i++)c.stocks.push({id:'id'+s.nextId++,company,owner:id,cost:c.stocks.length+1,round:1});}
+let count=0;
+function test(name,fn){fn();count++;console.log('PASS',name);}
+function make(n=3){const s=E.create(71,Array(n).fill('human'));s.phase='turn';s.leader=0;s.active=0;s.turnOrder=Array.from({length:n},(_,i)=>i);s.turnIndex=0;s.players[0].turns=1;return s;}
+function act(s,a){const r=E.dispatch(s,a);assert(r.ok,r.error);E.assertState(r.state);return r.state;}
+function reject(s,a){const raw=JSON.stringify(s),r=E.dispatch(s,a);assert.equal(r.ok,false);assert.equal(r.state,s);assert.equal(JSON.stringify(s),raw);return r.error;}
+function own(s,id,k=10,cid='sun'){const c=s.companies.find(c=>c.id===cid);for(let i=0;i<k;i++)c.stocks.push({id:'id'+s.nextId++,company:cid,owner:id,cost:c.stocks.length+1,round:s.round});}
+function offer(s,lender,principal,rate=10){const o={id:'id'+s.nextId++,lender,principal,rate,order:s.nextId};s.offers.push(o);return o;}
+function ordinary(s,borrower,principal,rate=5,lender='bank') {const cash=s.players[borrower].cash;s.players[borrower].cash=Math.max(cash,principal);const o=offer(s,lender,principal,rate);const a=s.active;s.active=borrower;s.financeUsed=false;const r=E.dispatch(s,{type:'borrow',offer:o.id});assert(r.ok,r.error);r.state.active=a;return r.state;}
 
-test('initial NPC cards form the entire stock price, with no fixed base',()=>{
- const s=E.create(3);assert.deepEqual(s.companies.map(c=>c.stocks.length),[6,10,14]);assert.equal(s.deck.length,24);assert.equal(s.phase,'ready');assert.equal(E.happyPrice(s),10);E.assertState(s);
+test('500 initial cash, six companies/properties, unchanged 10 happiness and integer currency',()=>{
+ const s=E.create(1);assert.equal(s.players[0].cash,500);assert.equal(E.happyPrice(s),10);assert.equal(s.companies.length,6);assert.deepEqual(s.properties.map(p=>p.price),[400,1500,5000,10000,30000,100000]);assert.equal(s.phase,'ready');E.assertState(s);
 });
-test('buy after addition, sell after removal, fixed cost and losing round trip',()=>{
- let s=make();s=apply(s,{type:'buyStock',company:'sun'});const t=s.companies[0].stocks.at(-1);assert.equal(t.cost,7);assert.equal(s.players[0].cash,53);s.mainUsed=false;s=apply(s,{type:'sellStock',company:'sun',stock:t.id});assert.equal(s.players[0].cash,59);assert.equal(s.companies[0].stocks.length,6);
+test('same company can be traded without a count limit, other principal actions are locked',()=>{
+ let s=make();s=act(s,{type:'buyStock',company:'sun'});s=act(s,{type:'buyStock',company:'sun'});const t=s.companies[0].stocks.find(t=>t.owner===0);s=act(s,{type:'sellStock',company:'sun',stock:t.id});assert.equal(s.tradeCount,3);assert.equal(s.tradeCompany,'sun');reject(s,{type:'buyStock',company:'wave'});reject(s,{type:'buyHappy'});reject(s,{type:'buyProperty',property:'apartment'});s=act(s,{type:'end'});assert.equal(s.tradeCompany,null);
 });
-test('middle sale preserves the other card IDs, order and original costs',()=>{
- let s=make();give(s,0,1);give(s,1,1);give(s,0,1);const c=s.companies[0],t=c.stocks[6],remaining=c.stocks.filter(x=>x.id!==t.id);s=apply(s,{type:'sellStock',company:c.id,stock:t.id});assert.deepEqual(s.companies[0].stocks,remaining);assert.equal(s.players[0].cash,68);
+test('middle sale preserves cost/owners; round trip cannot create cash',()=>{
+ let s=make();s=act(s,{type:'buyStock',company:'sun'});const t=s.companies[0].stocks.at(-1);s=act(s,{type:'sellStock',company:'sun',stock:t.id});assert.equal(s.players[0].cash,499);own(s,0,1);own(s,1,1);const before=s.companies[0].stocks.at(-1);s=act(s,{type:'sellStock',company:'sun',stock:E.stocks(s,0)[0].id});assert.deepEqual(s.companies[0].stocks.at(-1),before);
 });
-test('zero stock price, last-card zero proceeds, and first purchase for one',()=>{
- let s=make();s.companies[0].stocks=[];s=apply(s,{type:'buyStock',company:'sun'});assert.equal(s.players[0].cash,59);s.mainUsed=false;s=apply(s,{type:'sellStock',company:'sun',stock:s.companies[0].stocks[0].id});assert.equal(s.players[0].cash,59);assert.equal(s.companies[0].stocks.length,0);
+test('zero price, NPC declines below initial and atomic illegal actions',()=>{
+ let s=make();s.companies[0].stocks=[];s=act(s,{type:'buyStock',company:'sun'});assert.equal(s.players[0].cash,499);s=act(s,{type:'sellStock',company:'sun',stock:E.stocks(s,0)[0].id});assert.equal(s.players[0].cash,499);reject(s,{type:'sellStock',company:'sun',stock:'missing'});reject(s,{type:'end',revision:99});
 });
-test('illegal owner, duplicate revision and insufficient cash are atomic',()=>{
- const s=make();reject(s,{type:'sellStock',company:'sun',stock:s.companies[0].stocks[0].id});reject(s,{type:'end',revision:99});s.players[0].cash=0;reject(s,{type:'buyStock',company:'sun'});assert.equal(s.mainUsed,false);
+test('cash collateral is 100%, reserved and never recursively increases its own credit capacity',()=>{
+ let s=make();assert.equal(E.availableCollateral(s,0).total,500);s=act(s,{type:'borrow',offer:s.offers[0].id});assert.equal(s.loans[0].collateral.cash,200);assert.equal(s.players[0].cash,700);assert.equal(E.spendable(s,0),500);assert.equal(E.availableCollateral(s,0).cash,300);s.financeUsed=false;const o=offer(s,'bank',300);s=act(s,{type:'borrow',offer:o.id});assert.equal(E.availableCollateral(s,0).cash,0);assert.equal(E.pledged(s,0).cash,500);const bad=offer(s,'bank',1);s.financeUsed=false;reject(s,{type:'borrow',offer:bad.id});
 });
-test('liquidation values each own share sequentially',()=>{
- const s=make();s.companies[0].stocks=s.companies[0].stocks.slice(0,3);give(s,0,2);assert.equal(E.stockValue(s,0),7);
+test('no fixed total 50 or two contract cap',()=>{
+ let s=make();for(let i=0;i<3;i++){const o=offer(s,'bank',100);s.financeUsed=false;s=act(s,{type:'borrow',offer:o.id});}assert.equal(s.loans.length,3);assert.equal(E.debt(s,0),300);
 });
-test('happiness uses current price, NPC price rises have no player points',()=>{
- let s=make();s.happiness=[{id:'h1',owner:'npc'},{id:'h2',owner:1},{id:'h3',owner:'npc'}];s=apply(s,{type:'buyHappy'});assert.equal(s.players[0].cash,47);assert.equal(E.happyPrice(s),14);assert.equal(E.happiness(s,0),1);reject(s,{type:'buyHappy'});
+test('collateralized cash cannot be spent, and repayment releases it atomically',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:s.offers[0].id});s.players[0].cash=200;reject(s,{type:'buyStock',company:'sun'});s.financeUsed=false;s=act(s,{type:'repay',loan:s.loans[0].id});assert.equal(s.players[0].cash,0);assert.equal(E.pledged(s,0).cash,0);
 });
-test('happiness net assets boundary and rehabilitation restriction',()=>{
- let s=make();s.players[0].cash=10;s=apply(s,{type:'buyHappy'});assert.equal(s.players[0].cash,0);s=make();s.players[0].rehab=true;reject(s,{type:'buyHappy'});s=make();s.loans.push({id:'loan',borrower:0,lender:'bank',principal:50,rate:10,round:1});reject(s,{type:'buyHappy'});
+test('property provides half purchase cost, is not reused and cannot be sold while pledged',()=>{
+ let s=make();s=act(s,{type:'buyProperty',property:'apartment'});assert.equal(E.availableCollateral(s,0).properties[0].value,200);s=act(s,{type:'borrow',offer:s.offers[0].id});assert.deepEqual(s.loans[0].collateral.propertyIds,['apartment']);assert.equal(E.availableCollateral(s,0).properties.length,0);s.phase='event';s.pending={owner:0,rate:20,eventId:'x'};reject(s,{type:'eventSell',property:'apartment'});
 });
-test('property ownership, rent, event-only sale and integer floor',()=>{
- let s=make();s=apply(s,{type:'buyProperty',property:'shop'});assert.equal(s.players[0].cash,10);reject(s,{type:'eventSell',property:'shop'});s.phase='event';s.pending={owner:0,rate:15,eventId:'x'};s=apply(s,{type:'eventSell',property:'shop'});assert.equal(s.players[0].cash,67);assert.equal(s.properties[1].owner,null);assert.equal(s.properties[1].price,50);assert.equal(s.mainUsed,true);
- s=make();s.properties[1].owner=0;s.properties[1].cost=50;s.phase='event';s.pending={owner:0,rate:-15,eventId:'x'};s=apply(s,{type:'eventSell',property:'shop'});assert.equal(s.players[0].cash,102);
+test('stock collateral has 50% conservative sequential value and locks specific card IDs',()=>{
+ let s=make();own(s,0,10);const free=E.availableCollateral(s,0);assert(free.stocks.reduce((n,x)=>n+x.value,0)>0);const o=offer(s,'bank',10);s=act(s,{type:'borrow',offer:o.id});assert(s.loans[0].collateral.stockIds.length>0);const id=s.loans[0].collateral.stockIds[0];reject(s,{type:'sellStock',company:'sun',stock:id});
 });
-test('interest floors per contract, including zero',()=>{
- assert.equal(E.interest({principal:20,rate:5}),1);assert.equal(E.interest({principal:10,rate:5}),0);assert.equal(E.interest({principal:30,rate:5})*2,2);assert.equal(E.money(50,85),42);
+test('financing reserves property/stock only once, and save validation rejects duplicate pledges',()=>{
+ let s=make();own(s,0,10);s=act(s,{type:'borrow',offer:offer(s,'bank',10).id});s.financeUsed=false;s=act(s,{type:'borrow',offer:offer(s,'bank',10).id});const a=s.loans[0].collateral.stockIds,b=s.loans[1].collateral.stockIds;assert(!a.some(x=>b.includes(x)));const invalid=structuredClone(s);invalid.loans[1].collateral.stockIds.push(a[0]);assert.throws(()=>E.assertState(invalid));
 });
-test('loans require actual stock collateral, limit count, and disallow money loops',()=>{
- let s=make();reject(s,{type:'borrow',offer:s.bankOffers[0].id});s.players[0].cash=999;reject(s,{type:'borrow',offer:'emergency'});give(s,0,8);s=apply(s,{type:'borrow',offer:s.bankOffers[0].id});assert.equal(E.debt(s,0),20);assert.equal(s.players[0].cash,1019);reject(s,{type:'borrow',offer:'emergency'});s.financeUsed=false;s=apply(s,{type:'borrow',offer:'emergency'});s.financeUsed=false;reject(s,{type:'borrow',offer:'emergency'});
+test('publishing freely priced cards does not reserve cash, persists and cannot be self-borrowed',()=>{
+ let s=make();s=act(s,{type:'offer',principal:1000,rate:19.25});assert.equal(s.players[0].cash,500);const o=s.offers.at(-1);assert.equal(o.rate,19.25);s.financeUsed=false;reject(s,{type:'borrow',offer:o.id});s=act(s,{type:'end'});assert(s.offers.some(x=>x.id===o.id));
 });
-test('repayment returns the entire principal without another interest charge',()=>{
- let s=make();give(s,0,8);s=apply(s,{type:'borrow',offer:s.bankOffers[0].id});s.financeUsed=false;s=apply(s,{type:'repay',loan:s.loans[0].id});assert.equal(s.players[0].cash,60);assert.equal(E.nextInterest(s,0),0);assert.equal(E.debt(s,0),0);
+test('rates accept 0 through 20 and decimals; invalid rates/principal have no side effects',()=>{
+ for(const rate of [-1,20.01,1.001,NaN])reject(make(),{type:'offer',principal:200,rate});reject(make(),{type:'offer',principal:0,rate:10});let s=act(make(),{type:'offer',principal:200,rate:0});assert.equal(E.interest(s.offers.at(-1)),0);s=act(make(),{type:'offer',principal:200,rate:20});assert.equal(E.interest(s.offers.at(-1)),40);
 });
-test('refinancing is atomic and same principal at a lower rate only',()=>{
- let s=make();give(s,0,8);s.loans.push({id:'loan',borrower:0,lender:1,principal:20,rate:10,round:1});reject(s,{type:'refinance',loan:'loan',offer:'missing'});const cash=s.players[0].cash;s=apply(s,{type:'refinance',loan:'loan',offer:s.bankOffers[0].id});assert.equal(s.players[0].cash,cash);assert.equal(s.players[1].cash,80);assert.equal(E.nextInterest(s,0),1);
+test('player loan transfers exactly once without prior reserve when cash exists',()=>{
+ let s=make();const o=offer(s,1,100,18);s=act(s,{type:'borrow',offer:o.id});assert.equal(s.players[0].cash,600);assert.equal(s.players[1].cash,400);assert.equal(s.loans[0].lender,1);reject(s,{type:'borrow',offer:o.id});
 });
-test('lending reserves funds, acceptance transfers once and cancellation keeps slot used',()=>{
- let s=make();give(s,1,8);s=apply(s,{type:'offer',borrower:1});assert.equal(s.players[0].cash,40);const id=s.offers[0].id;s=apply(s,{type:'end'});s=apply(s,{type:'accept',offer:id});assert.equal(s.players[1].cash,80);assert.equal(s.players[0].cash,40);assert.equal(s.loans[0].lender,0);reject(s,{type:'accept',offer:id});
- s=make();s=apply(s,{type:'offer',borrower:1});s=apply(s,{type:'cancelOffer',offer:s.offers[0].id});assert.equal(s.players[0].cash,60);assert.equal(s.financeUsed,true);
+test('cashless lender is forced into emergency finance even outside their own turn',()=>{
+ let s=make();s.players[1].cash=0;s.offers=[];const o=offer(s,1,100,18);s=act(s,{type:'borrow',offer:o.id});assert.equal(s.players[0].cash,600);assert.equal(s.players[1].cash,0);const e=s.loans.find(l=>l.borrower===1);assert(e.emergency);assert.equal(e.rate,20);assert.equal(e.principal,100);assert.equal(e.dueTurn,1);assert.equal(s.financeUsed,true);
 });
-test('unaccepted offer expires at borrower next turn end with funds returned',()=>{
- let s=make();s=apply(s,{type:'offer',borrower:1});s=apply(s,{type:'end'});s=apply(s,{type:'end'});assert.equal(s.offers.length,0);assert.equal(s.players[0].cash,64);
+test('forced funding prefers cheapest eligible external card and preserves excess cash',()=>{
+ let s=make();s.offers=[];s.players[1].cash=40;s.properties[0].owner=1;s.properties[0].cost=400;const cheap=offer(s,'bank',100,4);offer(s,'bank',100,15);const o=offer(s,1,100,18);s=act(s,{type:'borrow',offer:o.id});const l=s.loans.find(l=>l.borrower===1);assert.equal(l.rate,4);assert.equal(s.players[1].cash,40);assert(!s.offers.some(x=>x.id===cheap.id));assert(!s.loans.some(l=>l.emergency));
 });
-test('new loan interest and rent apply in the same round once',()=>{
- let s=make();give(s,0,8);s.properties[0].owner=0;s.properties[0].cost=40;s=apply(s,{type:'borrow',offer:s.bankOffers[0].id});s=apply(s,{type:'end'});s=apply(s,{type:'end'});assert.equal(s.players[0].cash,87);assert.equal(s.round,2);
+test('recursive player funding is finite and cannot cycle through the original borrower',()=>{
+ let s=make();s.offers=[];s.players[1].cash=0;s.players[2].cash=0;for(const id of [1,2]){const p=s.properties[id-1];p.owner=id;p.cost=400;}
+ offer(s,0,100,1);const b=offer(s,1,100,10);offer(s,2,100,5);s=act(s,{type:'borrow',offer:b.id});assert.equal(s.loans.length,3);assert(s.loans.some(l=>l.emergency&&l.borrower===2));assert(s.offers.some(o=>o.lender===0));assert.equal(s.players[0].cash,600);assert.equal(s.players[1].cash,0);assert.equal(s.players[2].cash,0);
 });
-test('rescue preserves happiness/property and principal survives default',()=>{
- let s=make();s.players[0].cash=0;s.loans.push({id:'big',borrower:0,lender:1,principal:50,rate:20,round:1});s.happiness.push({id:'happy',owner:0});s.properties[0].owner=0;s.properties[0].occupied=false;s.properties[0].cost=40;s=apply(s,{type:'end'});s=apply(s,{type:'end'});assert.equal(s.phase,'rescue');s=apply(s,{type:'restructure'});assert.equal(E.debt(s,0),56);assert.equal(s.players[0].rehab,true);assert.equal(E.happiness(s,0),1);assert.equal(s.properties[0].owner,0);assert.equal(s.loans.length,0);assert.equal(s.players[1].cash,68);
+test('emergency is unsecured at 20%, with next own turn deadline, not next global turn',()=>{
+ let s=make();s.players[0].cash=0;s=act(s,{type:'borrow',offer:'emergency',principal:100});const l=s.loans[0];assert.equal(l.rate,20);assert.equal(l.dueTurn,2);assert.equal(l.collateral.value,0);assert.equal(E.repaymentTotal(l),120);s=act(s,{type:'end'});assert(!s.players[0].bankrupt);assert.equal(s.active,1);
 });
-test('NPC declines can cross initial price and never erase player shares',()=>{
- let s=make();s.phase='ready';s.deck[0].kind='sell';s.deck[0].name='大口売り';for(const c of s.companies)c.stocks=c.stocks.slice(0,1);give(s,0,1);s=apply(s,{type:'start'});assert.equal(E.stocks(s,0).length,1);assert(s.companies.some(c=>c.stocks.length<c.initial));
+test('emergency cannot be renewed and forced additions retain original deadline',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:'emergency',principal:100});s.financeUsed=false;reject(s,{type:'borrow',offer:'emergency',principal:100});s.offers=[];s.players[0].cash=0;const o=offer(s,0,50,15);s=act(s,{type:'end'});s=act(s,{type:'borrow',offer:o.id});const l=s.loans.find(l=>l.borrower===0&&l.emergency);assert.equal(l.principal,150);assert.equal(l.dueTurn,2);
 });
-test('serialization keeps future events deterministic and rejects bad save state',()=>{
- const s=make();assert.deepEqual(E.dispatch(s,{type:'end'}).state,E.dispatch(JSON.parse(JSON.stringify(s)),{type:'end'}).state);const bad=structuredClone(s);bad.companies[0].stocks[0].owner=99;assert.throws(()=>E.assertState(bad));bad.schemaVersion=2;assert.throws(()=>E.assertState(bad));
+test('due emergency is repaid at end without using finance slot',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:'emergency',principal:100});s.players[0].turns=2;s.financeUsed=true;s=act(s,{type:'end'});assert(!s.players[0].bankrupt);assert.equal(s.loans.filter(l=>l.borrower===0).length,0);assert.equal(s.players[0].cash,480);
 });
-test('winner determined solely by happiness, ties shared and final debt matures',()=>{
- let s=make();s.round=24;s.turn=1;s.active=1;s.happiness=[{id:'win',owner:0}];s.players[0].cash=0;s.players[1].cash=999;s=apply(s,{type:'end'});assert.equal(s.phase,'finished');assert.deepEqual(s.winners,[0]);reject(s,{type:'buyHappy'});
- s=make();s.round=24;s.turn=1;s.active=1;s=apply(s,{type:'end'});assert.deepEqual(s.winners,[0,1]);
+test('overdue insolvency eliminates despite highest happiness, cancels offers and skips turns',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:'emergency',principal:100});s.players[0].cash=0;s.players[0].turns=2;s.happiness.push({id:'won',owner:0});offer(s,0,200,15);s=act(s,{type:'end'});assert(s.players[0].bankrupt);assert(!s.offers.some(o=>o.lender===0));assert.equal(s.active,1);s=act(s,{type:'end'});s=act(s,{type:'end'});assert.notEqual(s.active,0);assert(!s.winners.includes(0));
 });
-test('emergency rescue used at most once, insolvency survives JSON round trip',()=>{
- let s=make();give(s,0,8);s.players[0].cash=0;s.loans.push({id:'big',borrower:0,lender:'bank',principal:20,rate:150,round:1});s=apply(s,{type:'end'});s=apply(s,{type:'end'});assert.equal(s.phase,'rescue');const snapshot=JSON.parse(JSON.stringify(s));E.assertState(snapshot);s=apply(snapshot,{type:'rescueBorrow'});assert.equal(s.phase,'rescue');reject(s,{type:'rescueBorrow'});s=apply(s,{type:'rescueSell',company:'sun',stock:E.stocks(s,0)[0].id});assert.equal(s.phase,'rescue');s=apply(s,{type:'restructure'});assert.notEqual(s.phase,'rescue');
+test('last surviving player wins immediately; all eliminated gives no winner',()=>{
+ let s=make(2);s=act(s,{type:'borrow',offer:'emergency',principal:100});s.players[0].cash=0;s.players[0].turns=2;s=act(s,{type:'end'});assert.equal(s.phase,'finished');assert.deepEqual(s.winners,[1]);
+ s=make(2);s.players[1].bankrupt=true;s=act(s,{type:'borrow',offer:'emergency',principal:100});s.players[0].cash=0;s.players[0].turns=2;s=act(s,{type:'end'});assert.equal(s.phase,'finished');assert.deepEqual(s.winners,[]);
 });
-test('relief offers a same-principal refinance, retaining rounded zero interest',()=>{
- let s=make();s.phase='ready';s.deck[0].kind='ease';s.deck[0].name='金融緩和';give(s,0,8);s.loans.push({id:'old',borrower:s.leader,lender:'bank',principal:10,rate:10,round:1});s=apply(s,{type:'start'});const offer=s.bankOffers.find(o=>o.principal===10&&o.rate===5);assert(offer);s=apply(s,{type:'refinance',loan:'old',offer:offer.id});assert.equal(E.nextInterest(s,0),0);assert.equal(E.debt(s,0),10);
+test('player market can refinance emergency at 20%, and ordinary same-rate replacements are rejected',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:'emergency',principal:100});s.financeUsed=false;const o=offer(s,1,100,20);s=act(s,{type:'refinance',loan:s.loans[0].id,offer:o.id});assert(!s.loans.some(l=>l.emergency));assert.equal(s.loans[0].rate,20);assert.equal(s.players[0].cash,580);s.financeUsed=false;const again=offer(s,1,100,20);reject(s,{type:'refinance',loan:s.loans[0].id,offer:again.id});
 });
-test('event sale opportunity belongs to the rotating leader and cannot repeat',()=>{
- let s=make();s.phase='ready';s.properties[0].owner=0;s.properties[0].cost=40;s.deck[0].kind='salePlus';s.deck[0].name='不動産売却';s=apply(s,{type:'start'});assert.equal(s.phase,'event');reject(s,{type:'eventSell',property:'shop'});s=apply(s,{type:'eventSell',property:'apartment'});assert.equal(s.players[0].cash,108);assert.equal(s.phase,'turn');assert.equal(s.mainUsed,false);reject(s,{type:'eventSell',property:'apartment'});
+test('refinancing failure rolls back old collateral, card, cash and emergency chain',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:'emergency',principal:200});s.players[0].cash=0;s.financeUsed=false;const o=offer(s,1,200,10);reject(s,{type:'refinance',loan:s.loans[0].id,offer:o.id});assert(s.loans[0].emergency);
 });
-test('simultaneous incoming interest cannot fund an outgoing payment in that settlement',()=>{
- let s=make();s.players[0].cash=0;s.players[1].cash=0;s.loans=[{id:'a',borrower:0,lender:1,principal:20,rate:25,round:1},{id:'b',borrower:1,lender:0,principal:20,rate:25,round:1}];s=apply(s,{type:'end'});s=apply(s,{type:'end'});assert.equal(s.phase,'rescue');s=apply(s,{type:'restructure'});assert.equal(s.phase,'rescue');assert.equal(s.active,1);s=apply(s,{type:'restructure'});assert.equal(s.round,2);assert(E.debt(s,0)>0&&E.debt(s,1)>0);
+test('property event sale ±20% respects integer flooring and does not use main action',()=>{
+ for(const [rate,expected] of [[20,480],[-20,320]]){let s=make();s.properties[0].owner=0;s.properties[0].cost=400;s.phase='event';s.pending={owner:0,rate,eventId:'x'};s=act(s,{type:'eventSell',property:'apartment'});assert.equal(s.players[0].cash,500+expected);assert.equal(s.mainUsed,false);reject(s,{type:'eventSell',property:'apartment'});}
 });
-test('all supplied stock cards have legal IDs and malformed config/decks fail restoration',()=>{
- const s=make();let bad=structuredClone(s);bad.config.cash=999;assert.throws(()=>E.assertState(bad));bad=structuredClone(s);bad.deck[0].kind='unknown';assert.throws(()=>E.assertState(bad));bad=structuredClone(s);bad.companies[0].stocks.push({...bad.companies[0].stocks[0]});assert.throws(()=>E.assertState(bad));
+test('per-contract interest floors without floating point currency errors',()=>{
+ assert.equal(E.interest({principal:30,rate:5})*2,2);assert.equal(E.interest({principal:1000,rate:0.1}),1);assert.equal(E.interest({principal:10,rate:5}),0);assert.equal(E.money(50,85),42);
 });
-test('500 seeded games complete; all actions validate; strategies and seat counts vary',()=>{
+test('happiness keeps current price and counts NPC permanent cards correctly',()=>{
+ let s=make();s.happiness=[{id:'h1',owner:'npc'},{id:'h2',owner:1}];s=act(s,{type:'buyHappy'});assert.equal(s.players[0].cash,488);assert.equal(E.happyPrice(s),13);assert.equal(E.happiness(s,0),1);reject(s,{type:'buyStock',company:'sun'});
+});
+test('final maturity cannot hide a last-round emergency and bankrupt is excluded from points',()=>{
+ let s=make();s.round=24;s.turnIndex=2;s.active=2;s.players[2].turns=1;s=act(s,{type:'borrow',offer:'emergency',principal:1000});s.players[2].cash=0;s.happiness.push({id:'h',owner:2});s=act(s,{type:'end'});while(s.phase==='rescue')s=act(s,{type:'restructure'});assert.equal(s.phase,'finished');assert(s.players[2].bankrupt);assert(!s.winners.includes(2));
+});
+test('schema, owner, deadline and configuration validation reject corrupt restored data',()=>{
+ const s=make();for(const mutate of [x=>x.schemaVersion=1,x=>x.config.cash=1,x=>x.companies[0].stocks[0].owner=99,x=>x.players[0].cash=-1]){const bad=structuredClone(s);mutate(bad);assert.throws(()=>E.assertState(bad));}
+ let withLoan=act(s,{type:'borrow',offer:'emergency',principal:100});withLoan.loans[0].dueTurn=null;assert.throws(()=>E.assertState(withLoan));
+});
+test('storage v2 preserves v1 bytes and detects another tab changing the save',()=>{
+ const disk=new Map([['life-investment-save-v1','OLD-SAVE-BYTES']]);const ctx={LifeEngine:E,localStorage:{getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)}};ctx.globalThis=ctx;vm.runInNewContext(fs.readFileSync(__dirname+'/storage.js','utf8'),ctx);assert.equal(ctx.LifeStorage.read(),null);assert(ctx.LifeStorage.hasLegacy());ctx.LifeStorage.save(make());assert.equal(disk.get('life-investment-save-v1'),'OLD-SAVE-BYTES');assert.equal(ctx.LifeStorage.read().schemaVersion,2);disk.set('life-investment-save-v2','other');assert.throws(()=>ctx.LifeStorage.save(make()));
+});
+test('legacy engine can still validate and play its own saved v1 configuration',()=>{
+ const legacy=require('./legacy/engine.js'),s=legacy.create(19);assert.equal(s.schemaVersion,1);assert.equal(s.players[0].cash,60);assert(legacy.assertState(s));assert(legacy.dispatch(s,{type:'start'}).ok);
+});
+test('same seed and input reproduce future events without time-dependent rule changes',()=>{
+ let a=make(),b=JSON.parse(JSON.stringify(a));for(const action of [{type:'buyStock',company:'sun'},{type:'buyStock',company:'sun'},{type:'end'},{type:'buyHappy'},{type:'end'},{type:'end'}]){a=act(a,action);b=act(b,action);}assert.deepEqual(a,b);
+});
+test('500 deterministic games, 2-4 players, AI strategies, repeat trading and debt stress complete',()=>{
  for(let seed=0;seed<500;seed++){
-  let s=E.create(seed,Array.from({length:2+seed%3},()=> 'ai')),steps=0;const strategy=['mixed','happy','stock'][seed%3];
-  while(s.phase!=='finished'&&steps++<600){const a=AI.choose(s,strategy);assert(a,'no legal action at '+seed);s=apply(s,a);E.assertState(s);}
-  assert.equal(s.phase,'finished','seed '+seed+' stuck after '+steps);assert(s.winners.length>0);assert.equal(s.round,24);
+  let s=E.create(seed,Array(2+seed%3).fill('ai')),steps=0;
+  if(seed%5===0){s.phase='turn';s.leader=0;s.active=0;s.turnOrder=s.players.map(p=>p.id);s.players[0].turns=1;s=act(s,{type:'borrow',offer:'emergency',principal:seed%2?100:1000});s.players[0].cash=seed%2?200:0;}
+  while(s.phase!=='finished'&&steps++<1500){const action=AI.choose(s,['mixed','stock','happy'][seed%3]);assert(action,'no legal action seed '+seed);s=act(s,action);}
+  assert.equal(s.phase,'finished','seed '+seed+' exceeded finite progress bound');assert(s.winners.every(id=>!E.player(s,id).bankrupt));
+  if((seed+1)%100===0)console.log('Completed',seed+1,'/ 500 seeded games');
  }
 });
-console.log('PASS',checks,'scenarios; 500 complete games');
+console.log('PASS',count,'scenarios including 500 seeded games');
