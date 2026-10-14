@@ -14,7 +14,7 @@ test('500 initial cash, six companies/properties, unchanged 10 happiness and int
  const s=E.create(1);assert.equal(s.players[0].cash,500);assert.equal(E.happyPrice(s),10);assert.equal(s.companies.length,6);assert.deepEqual(s.properties.map(p=>p.price),[400,1500,5000,10000,30000,100000]);assert.equal(s.phase,'ready');E.assertState(s);
 });
 test('same company can be traded without a count limit, other principal actions are locked',()=>{
- let s=make();s=act(s,{type:'buyStock',company:'sun'});s=act(s,{type:'buyStock',company:'sun'});const t=s.companies[0].stocks.find(t=>t.owner===0);s=act(s,{type:'sellStock',company:'sun',stock:t.id});assert.equal(s.tradeCount,3);assert.equal(s.tradeCompany,'sun');reject(s,{type:'buyStock',company:'wave'});reject(s,{type:'buyHappy'});reject(s,{type:'buyProperty',property:'apartment'});s=act(s,{type:'end'});assert.equal(s.tradeCompany,null);
+ let s=make();s=act(s,{type:'buyStock',company:'sun'});s=act(s,{type:'buyStock',company:'sun'});const t=s.companies[0].stocks.find(t=>t.owner===0);s=act(s,{type:'sellStock',company:'sun',stock:t.id});assert.equal(s.tradeCount,3);assert.equal(s.tradeCompany,'sun');reject(s,{type:'buyStock',company:'wave'});s=act(s,{type:'buyHappy'});assert.equal(s.tradeCompany,'sun');assert.equal(s.mainUsed,true);reject(s,{type:'buyProperty',property:'apartment'});s=act(s,{type:'end'});assert.equal(s.tradeCompany,null);
 });
 test('middle sale preserves cost/owners; round trip cannot create cash',()=>{
  let s=make();s=act(s,{type:'buyStock',company:'sun'});const t=s.companies[0].stocks.at(-1);s=act(s,{type:'sellStock',company:'sun',stock:t.id});assert.equal(s.players[0].cash,499);own(s,0,1);own(s,1,1);const before=s.companies[0].stocks.at(-1);s=act(s,{type:'sellStock',company:'sun',stock:E.stocks(s,0)[0].id});assert.deepEqual(s.companies[0].stocks.at(-1),before);
@@ -100,7 +100,7 @@ test('per-contract interest floors without floating point currency errors',()=>{
  assert.equal(E.interest({principal:30,rate:5})*2,2);assert.equal(E.interest({principal:1000,rate:0.1}),1);assert.equal(E.interest({principal:10,rate:5}),0);assert.equal(E.money(50,85),42);
 });
 test('happiness keeps current price and counts NPC permanent cards correctly',()=>{
- let s=make();s.happiness=[{id:'h1',owner:'npc'},{id:'h2',owner:1}];s=act(s,{type:'buyHappy'});assert.equal(s.players[0].cash,488);assert.equal(E.happyPrice(s),13);assert.equal(E.happiness(s,0),1);reject(s,{type:'buyStock',company:'sun'});
+ let s=make();s.happiness=[{id:'h1',owner:'npc'},{id:'h2',owner:1}];s=act(s,{type:'buyHappy'});assert.equal(s.players[0].cash,488);assert.equal(E.happyPrice(s),13);assert.equal(E.happiness(s,0),1);assert.equal(s.mainUsed,false);s=act(s,{type:'buyStock',company:'sun'});s=act(s,{type:'buyHappy'});assert.equal(E.happiness(s,0),2);
 });
 test('final maturity cannot hide a last-round emergency and bankrupt is excluded from points',()=>{
  let s=make();s.round=24;s.turnIndex=2;s.active=2;s.players[2].turns=1;s=act(s,{type:'borrow',offer:'emergency',principal:1000});s.players[2].cash=0;s.happiness.push({id:'h',owner:2});s=act(s,{type:'end'});while(s.phase==='rescue')s=act(s,{type:'restructure'});assert.equal(s.phase,'finished');assert(s.players[2].bankrupt);assert(!s.winners.includes(2));
@@ -128,6 +128,38 @@ test('legacy v2 retains cash locks and can still validate and play its own save'
 test('same seed and input reproduce future events without time-dependent rule changes',()=>{
  let a=make(),b=JSON.parse(JSON.stringify(a));for(const action of [{type:'buyStock',company:'sun'},{type:'buyStock',company:'sun'},{type:'end'},{type:'buyHappy'},{type:'end'},{type:'end'}]){a=act(a,action);b=act(b,action);}assert.deepEqual(a,b);
 });
+
+test('repeated happiness buys use 10, 11, 12 with no main/finance use or duplicate revision',()=>{
+ let s=make();for(let i=0;i<3;i++)s=act(s,{type:'buyHappy'});
+ assert.equal(s.players[0].cash,467);assert.equal(E.happiness(s,0),3);assert.equal(E.happyPrice(s),13);assert.equal(s.mainUsed,false);assert.equal(s.financeUsed,false);assert.equal(s.tradeCompany,null);
+ const a={type:'buyHappy',revision:s.revision};s=act(s,a);reject(s,a);assert.equal(E.happiness(s,0),4);
+});
+test('happiness combines with property and finance, keeping both used slots unchanged',()=>{
+ let s=make();s=act(s,{type:'buyProperty',property:'apartment'});s=act(s,{type:'borrow',offer:s.offers[0].id});
+ s=act(s,{type:'buyHappy'});s=act(s,{type:'buyHappy'});assert.equal(s.players[0].cash,279);assert(s.mainUsed);assert(s.financeUsed);assert(E.actions(s).some(a=>a.type==='buyHappy'));
+ reject(s,{type:'buyProperty',property:'house'});reject(s,{type:'borrow',offer:'emergency',principal:100});
+});
+test('repeat purchases still require own normal turn, money, net assets and no rehabilitation',()=>{
+ for(const phase of ['ready','event','rescue','finished']){const s=make();s.phase=phase;reject(s,{type:'buyHappy'});}
+ let s=make();s.players[0].cash=9;reject(s,{type:'buyHappy'});
+ s=make();s.players[0].rehab=true;reject(s,{type:'buyHappy'});
+ s=make();s=act(s,{type:'borrow',offer:'emergency',principal:500});s.players[0].cash=500;reject(s,{type:'buyHappy'});
+ s=make();reject(s,{type:'buyHappy',actor:1});
+});
+test('AI can buy happiness repeatedly after both slots, then finishes when unaffordable',()=>{
+ let s=make();s.mainUsed=true;s.financeUsed=true;s.players[0].cash=21;
+ for(let i=0;i<2;i++){const a=AI.choose(s);assert.equal(a.type,'buyHappy');s=act(s,a);}
+ assert.equal(s.players[0].cash,0);assert.equal(E.happiness(s,0),2);assert(s.mainUsed&&s.financeUsed);assert.equal(AI.choose(s).type,'end');
+});
+test('credit rules v3 save upgrades without resetting assets, emergency deadlines or past actions',()=>{
+ let old=make();old=act(old,{type:'borrow',offer:'emergency',principal:100});old.mainUsed=true;old.rulesVersion=3;
+ const original=JSON.stringify(old),updated=E.upgradeState(old);assert.equal(JSON.stringify(old),original);assert.equal(updated.rulesVersion,4);const expected=JSON.parse(original);expected.rulesVersion=4;assert.deepEqual(updated,expected);
+ const disk=new Map([['life-investment-save-v3',JSON.stringify({format:3,token:'old-credit',state:old})]]),ctx={LifeEngine:E,localStorage:{getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)}};ctx.globalThis=ctx;
+ vm.runInNewContext(fs.readFileSync(__dirname+'/storage.js','utf8'),ctx);const before=disk.get('life-investment-save-v3');let s=ctx.LifeStorage.read();assert.equal(disk.get('life-investment-save-v3'),before);assert.equal(s.rulesVersion,4);
+ s=act(s,{type:'buyHappy'});ctx.LifeStorage.save(s);assert.equal(JSON.parse(disk.get('life-investment-save-v3')).state.rulesVersion,4);assert.equal(s.loans[0].dueTurn,old.loans[0].dueTurn);assert(s.mainUsed&&s.financeUsed);
+ const unknown=structuredClone(old);unknown.rulesVersion=99;assert.throws(()=>E.upgradeState(unknown));
+});
+
 test('500 deterministic games, 2-4 players, AI strategies, repeat trading and debt stress complete',()=>{
  for(let seed=0;seed<500;seed++){
   let s=E.create(seed,Array(2+seed%3).fill('ai')),steps=0;

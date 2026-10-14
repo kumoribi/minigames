@@ -22,6 +22,7 @@
       // Repeated trading is legal for humans. AI stops after a short batch and never churns buy/sell.
       if(a.type==='buyStock')return s.tradeCount>=3?0:s.round<15?(strategy==='stock'?95:45):0;
       if(a.type==='sellStock')return s.tradeCount>=3?0:s.round>17?70:0;
+      // Happiness uses no action slot; repeat while affordable under the same human rules.
       if(a.type==='buyHappy')return strategy==='happy'?100:s.round>10?90:35;
       if(a.type==='buyProperty') {const prop=s.properties.find(p=>p.id===a.property);return strategy==='happy'?0:prop.occupied&&remaining*prop.rent>=prop.price?95:0;}
       if(a.type==='offer')return 30;

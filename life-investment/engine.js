@@ -44,7 +44,7 @@
   function addStock(s,c,owner,cost) {c.stocks.push({id:uid(s),company:c.id,owner,cost,round:s.round});}
   function create(seed=Date.now()>>>0,controllers=['human','ai']) {
     if(controllers.length<2||controllers.length>4||controllers.some(x=>!['human','ai'].includes(x)))fail('人数は2～4人です');
-    const s={schemaVersion:3,rulesVersion:3,config:copy(C),gameId:'life3-'+seed+'-'+Date.now(),seed:seed>>>0,rng:seed>>>0,nextId:1,revision:0,phase:'ready',round:1,active:0,leader:0,turnOrder:[],turnIndex:0,mainUsed:false,tradeCompany:null,tradeCount:0,financeUsed:false,
+    const s={schemaVersion:3,rulesVersion:4,config:copy(C),gameId:'life3-'+seed+'-'+Date.now(),seed:seed>>>0,rng:seed>>>0,nextId:1,revision:0,phase:'ready',round:1,active:0,leader:0,turnOrder:[],turnIndex:0,mainUsed:false,tradeCompany:null,tradeCount:0,financeUsed:false,
       players:controllers.map((controller,id)=>({id,name:controller==='ai'?'投資家AI '+id:'プレイヤー '+(id+1),controller,cash:C.cash,rehab:false,bankrupt:false,turns:0})),
       companies:C.companies.map(c=>({...c,stocks:[]})),properties:C.properties.map(p=>({...p,owner:null,occupied:true,cost:0})),happiness:[],loans:[],claims:[],offers:[],deck:[],event:null,pending:null,settlement:null,log:[],winners:[]};
     for(const c of s.companies)for(let i=0;i<c.initial;i++)addStock(s,c,'npc',null);
@@ -260,10 +260,11 @@
       s.mainUsed=true;s.tradeCompany=c.id;s.tradeCount++;return;
     }
     if(a.type==='buyHappy') {
-      main(s);const n=happyPrice(s);
+      if(s.phase!=='turn')fail('幸福は自分の通常手番中に購入できます');
+      const n=happyPrice(s);
       if(p.rehab)fail('残債完済まで幸福を購入できません');
       if(p.cash-n+stockValue(s,p.id)+s.properties.filter(x=>x.owner===p.id).reduce((n,x)=>n+money(x.cost,50),0)-debt(s,p.id)-nextInterest(s,p.id)<0)fail('購入後の純資産が次回利息を下回ります');
-      pay(s,p.id,'bank',n);s.happiness.push({id:uid(s),owner:p.id});s.mainUsed=true;log(s,p.name+'が幸福を'+n+'万円で購入');return;
+      pay(s,p.id,'bank',n);s.happiness.push({id:uid(s),owner:p.id});log(s,p.name+'が幸福を'+n+'万円で購入');return;
     }
     if(a.type==='buyProperty') {
       main(s);if(!prop||prop.owner!==null)fail('購入できる物件を選んでください');pay(s,p.id,'bank',prop.price);prop.owner=p.id;prop.cost=prop.price;s.mainUsed=true;log(s,p.name+'が'+prop.name+'を購入');return;
@@ -289,7 +290,7 @@
     const s=copy(state);try{execute(s,action);s.revision++;assertState(s);return {ok:true,state:s};}catch(e){return {ok:false,error:e.message,state};}
   }
   function assertState(s) {
-    if(s.schemaVersion!==3||s.rulesVersion!==3)fail('旧ルールの保存です。旧版の入口から再開してください');
+    if(s.schemaVersion!==3||s.rulesVersion!==4)fail('旧ルールの保存です。旧版の入口から再開してください');
     if(JSON.stringify(s.config)!==JSON.stringify(C))fail('保存された設定が対応ルールと一致しません');
     if(!['ready','turn','event','rescue','finished'].includes(s.phase)||!integer(s.round)||s.round<1||s.round>24||!integer(s.revision)||!integer(s.nextId)||!integer(s.rng))fail('進行状態が不正です');
     if(!Array.isArray(s.players)||s.players.length<2||s.players.length>4||s.players.some((p,i)=>p.id!==i||!integer(p.cash)||!integer(p.turns)||!['human','ai'].includes(p.controller)||typeof p.bankrupt!=='boolean')||!player(s,s.active))fail('プレイヤー状態が不正です');
@@ -326,6 +327,12 @@
     if(s.phase==='rescue'&&(!s.settlement||s.settlement.index!==s.active))fail('精算状態が不正です');
     return true;
   }
+  function upgradeState(state) {
+    if(state.schemaVersion!==3||![3,4].includes(state.rulesVersion))fail('対応していない保存ルールです');
+    const s=copy(state);
+    // Preserve past actions and every asset; only future happiness purchases use the new rule.
+    s.rulesVersion=4;assertState(s);return s;
+  }
   function actions(s) {
     const out=[],id=s.active;
     if(s.phase==='ready')return [{type:'start'}];
@@ -335,7 +342,8 @@
       out.push({type:'rescueBorrow'},{type:'restructure'});return out;
     }
     if(s.phase!=='turn')return out;
-    if(!s.mainUsed) {out.push({type:'buyHappy'});for(const p of s.properties.filter(p=>p.owner===null))out.push({type:'buyProperty',property:p.id});}
+    out.push({type:'buyHappy'});
+    if(!s.mainUsed) {for(const p of s.properties.filter(p=>p.owner===null))out.push({type:'buyProperty',property:p.id});}
     for(const c of s.companies)if(!s.mainUsed||s.tradeCompany===c.id) {
       out.push({type:'buyStock',company:c.id});for(const t of c.stocks.filter(t=>t.owner===id))out.push({type:'sellStock',company:c.id,stock:t.id});
     }
@@ -351,6 +359,6 @@
     for(const o of s.offers.filter(o=>o.lender===id))out.push({type:'cancelOffer',offer:o.id});
     out.push({type:'end'});return out;
   }
-  const E={create,dispatch,assertState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,happiness,happyPrice,money,spendable,creditProfile};
+  const E={create,dispatch,assertState,upgradeState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,happiness,happyPrice,money,spendable,creditProfile};
   if(typeof module==='object'&&module.exports)module.exports=E;else root.LifeEngine=E;
 })(typeof globalThis==='object'?globalThis:this);

@@ -21,6 +21,7 @@
     pending={...a,revision:state.revision};
     const before=E.current(state),after=E.player(r.state,before.id),c=state.companies.find(c=>c.id===a.company),next=r.state.companies.find(c=>c.id===a.company);
     let preview='<div class="preview"><span>現金</span><strong>'+amount(before.cash)+' → '+amount(after.cash)+'</strong><span>使用可能な現金</span><strong>'+amount(E.spendable(state,before.id))+' → '+amount(E.spendable(r.state,before.id))+'</strong>'+(c?'<span>'+esc(c.name)+' 株価</span><strong>'+amount(c.stocks.length)+' → '+amount(next.stocks.length)+'</strong>':'')+'<span>次回利息</span><strong>'+amount(E.nextInterest(state,before.id))+' → '+amount(E.nextInterest(r.state,before.id))+'</strong></div>';
+    if(a.type==='buyHappy')preview+='<div class="preview"><span>幸福ポイント</span><strong>'+E.happiness(state,before.id)+' → '+E.happiness(r.state,before.id)+'</strong><span>次の購入価格</span><strong>'+amount(E.happyPrice(r.state))+'</strong></div>';
     const newLoans=r.state.loans.filter(l=>!state.loans.some(old=>old.id===l.id)||state.loans.find(old=>old.id===l.id)?.principal!==l.principal);
     if(newLoans.length)preview+='<h3>この操作で成立する融資</h3>'+newLoans.map(l=>'<p>'+esc(name(l.borrower))+' ← '+esc(name(l.lender))+'：'+amount(l.principal)+'・'+l.rate+'%'+(l.emergency?'。緊急融資／第'+l.dueTurn+'手番末が期限':'。信用枠で借入／資産の拘束なし')+'</p>').join('');
     const eliminated=r.state.players.filter(p=>p.bankrupt&&!E.player(state,p.id).bankrupt);
@@ -29,7 +30,8 @@
     $('confirm-body').innerHTML=preview+'<p>'+esc(note(a))+'</p>';$('confirm').showModal();
   }
   function note(a){
-    if(a.type==='buyStock'||a.type==='sellStock')return 'この手番は同じ1銘柄を何度でも売買できます。他銘柄・不動産・幸福への主行動変更はできません。';
+    if(a.type==='buyHappy')return '主行動・金融操作は消費しません。同じ手番で何度でも購入できます。次の1枚は購入後の価格になります。';
+    if(a.type==='buyStock'||a.type==='sellStock')return 'この手番は同じ1銘柄を何度でも売買できます。他銘柄・不動産への主行動変更はできません。幸福は別枠で購入できます。';
     if(a.type==='offer')return '元本は確保しません。他の人が借りる時に現金不足なら、あなたも他の融資から強制調達します。最悪の場合は緊急融資になります。';
     if(a.type==='borrow'||a.type==='refinance')return '通常融資は追加融資枠の範囲内で利用できます。資産は拘束しません。貸し手の資金不足では連鎖借入が発生します。上の契約と期限を確認してください。';
     if(a.type==='end')return '期限に達した緊急融資は自動返済されます。現金が不足すると破産・脱落します。';
@@ -43,7 +45,7 @@
     $('age').textContent=(20+state.round*2)+'–'+(22+state.round*2)+'歳';$('round').textContent=state.round+' / 24 ROUND';
     $('hud').innerHTML=[['使用可能な現金',E.spendable(state,p.id),'万円'],['幸福',E.happiness(state,p.id),'pt'],['借入・残債',E.debt(state,p.id),'万円'],['次回利息',E.nextInterest(state,p.id),'万円']].map(([k,v,u])=>'<div class="metric"><small>'+k+'</small><strong>'+num(v)+'<em>'+u+'</em></strong></div>').join('');
     $('turn').textContent=state.phase==='finished'?'人生の決算':p.name+(state.phase==='event'?'の売却機会':state.phase==='rescue'?'の支払救済':'の手番');
-    $('guide').textContent=state.phase==='ready'?'初期資金500万円。幸福の初期価格は10万円。':state.phase==='event'?'所有物件を1件売るか、見送ってください。':state.phase==='rescue'?'支払不足です。緊急融資は次の手番末に返せなければ脱落します。':p.rehab?'資産整理中：収入を残債返済へ。':(state.tradeCompany?'売買中：'+state.companies.find(c=>c.id===state.tradeCompany).name+'（回数制限なし）':'主行動 '+(state.mainUsed?'使用済み':'あと1回'))+' ／ 金融 '+(state.financeUsed?'使用済み':'あと1回');
+    $('guide').textContent=state.phase==='ready'?'初期資金500万円。幸福の初期価格は10万円。':state.phase==='event'?'所有物件を1件売るか、見送ってください。':state.phase==='rescue'?'支払不足です。緊急融資は次の手番末に返せなければ脱落します。':p.rehab?'資産整理中：収入を残債返済へ。':(state.tradeCompany?'売買中：'+state.companies.find(c=>c.id===state.tradeCompany).name+'（回数制限なし）':'主行動 '+(state.mainUsed?'使用済み':'あと1回'))+' ／ 金融 '+(state.financeUsed?'使用済み':'あと1回')+' ／ 幸福は別枠';
     $('pause').textContent=paused?'再開':'一時停止';$('event-title').textContent=state.event?.name||'人生の準備をしましょう';$('event-detail').textContent=state.event?.detail||'6社の株・6種類の不動産と、みんなの融資カード。最後は幸福で勝負。';
     $('players').innerHTML=state.players.map(q=>{
       const urgent=state.loans.filter(l=>l.borrower===q.id&&l.emergency);
@@ -66,7 +68,7 @@
     } else if(tab==='property') {
       html+='<div class="cards">'+state.properties.map(x=>'<article class="card"><span class="kicker">'+(x.occupied?'● 入居中':'○ 空室')+'</span><h3>'+esc(x.name)+'</h3><p>家賃 '+amount(x.rent)+' / ラウンド<br>所有：'+esc(x.owner===null?'売出中':name(x.owner))+'</p><strong class="price property-price">'+amount(x.price)+'</strong><div class="card-action">'+(x.owner===null?button('購入する',{type:'buyProperty',property:x.id}):state.phase==='event'&&x.owner===state.pending.owner?button('売却 '+amount(E.money(x.cost,100+state.pending.rate)),{type:'eventSell',property:x.id}):'<p>売却はイベント時のみ</p>')+'</div></article>').join('')+'</div><p class="legend">取得額の50%を信用評価。借入中でも売却イベントで売れます。家賃は入居中のみ。</p>';
     } else if(tab==='happy') {
-      html+='<article class="card happy-card wide"><div class="happy-symbol">✺</div><p class="kicker">THE THINGS THAT MATTER</p><h3>いま、しあわせを買う</h3><p>思い出、家族との時間、自分のための選択。<br>一度得た幸福は、誰にも売れません。</p><strong class="price">'+E.happyPrice(state)+'<small> 万円 / 1pt</small></strong>'+button('幸福を1つ購入',{type:'buyHappy'})+'<p>みんなの購入 '+state.happiness.filter(x=>x.owner!=='npc').length+'枚 · NPC '+state.happiness.filter(x=>x.owner==='npc').length+'枚</p></article>';
+      html+='<article class="card happy-card wide"><div class="happy-symbol">✺</div><p class="kicker">THE THINGS THAT MATTER</p><h3>いま、しあわせを買う</h3><p>思い出、家族との時間、自分のための選択。<br>一度得た幸福は、誰にも売れません。<br>主行動を使わず、何度でも購入できます。</p><strong class="price">'+E.happyPrice(state)+'<small> 万円 / 1pt</small></strong>'+button('幸福を1つ購入',{type:'buyHappy'})+'<p>みんなの購入 '+state.happiness.filter(x=>x.owner!=='npc').length+'枚 · NPC '+state.happiness.filter(x=>x.owner==='npc').length+'枚</p></article>';
     } else {
       const free=E.creditProfile(state,p.id);
       html+='<div class="notice">追加で借りられる額 '+amount(free.remaining)+'<br>信用上限 '+amount(free.limit)+' − 借入・残債 '+amount(free.outstanding)+'<br>株50% '+amount(free.stock)+' ／ 不動産50% '+amount(free.property)+' ／ 自己現金100% '+amount(free.ownCash)+'<br>現金は全額使用可能。株・不動産も拘束しません。現金評価から借入金相当額を除き、既存債務を信用上限から差し引きます。</div>';
