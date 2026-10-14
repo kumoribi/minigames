@@ -11,7 +11,43 @@
   function feedback(text){$('status').textContent=text;}
   function save(){try{LifeStorage.save(state);$('save').textContent='自動保存済み · 会社・配当ルール v4';}catch(e){blocked=true;paused=true;$('save').textContent='保存できません：'+e.message;feedback(e.message);}}
   function sound(){if(!$('sound').checked||document.hidden)return;try{const a=new AudioContext(),o=a.createOscillator(),g=a.createGain();o.frequency.value=620;g.gain.setValueAtTime(.03,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.12);o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+.14);o.onended=()=>a.close();}catch(_){}}
-  function commit(a){const r=E.dispatch(state,{...a,revision:a.revision??state.revision});if(!r.ok){feedback(r.error);return;}state=r.state;feedback('');sound();save();render();}
+  function commit(a){
+    const actor=E.current(state),previous=state.cashReport?.updatedRevision;
+    const r=E.dispatch(state,{...a,revision:a.revision??state.revision});if(!r.ok){feedback(r.error);return;}
+    state=r.state;const report=state.cashReport,changed=report&&report.updatedRevision!==previous;
+    reportPending=!!(changed&&(actor.controller==='human'||report.kind==='round')&&state.players.some(p=>p.controller==='human'));
+    feedback('');sound();save();render();
+    if(reportPending){reportPending=false;openStatement(actor.controller==='human'?actor.id:state.players.find(p=>p.controller==='human').id);}
+  }
+  let reportPending=false;
+  function statementRow(row,estimated=false) {
+    const t=E.cashTotals(row),groups=[['収入明細','in',['base','rent','dividend','interest']],['利払い明細','out',['interest']],['元本・その他の入出金',null,['principal','claims','stock','funding','other']]];
+    let html='<p class="statement-player">'+esc(name(row.player))+'</p>';
+    html+='<dl class="statement-lines statement-totals statement-overview"><div><dt>収入合計</dt><dd>＋'+amount(t.income)+'</dd></div><div><dt>利払い合計</dt><dd class="expense">−'+amount(t.paidInterest)+'</dd></div><div><dt>収入 − 利払い</dt><dd>'+amount(t.operatingNet)+'</dd></div></dl>';
+    if(!estimated)html+='<dl class="statement-lines statement-totals"><div><dt>現金増減（元本なども含む）</dt><dd>'+amount(t.net)+'</dd></div><div><dt>現金</dt><dd>'+amount(row.cashBefore)+' → '+amount(row.cashAfter)+'</dd></div></dl>';
+    for(const [title,direction,categories] of groups){
+      const lines=row.entries.filter(e=>(!direction||e.direction===direction)&&categories.includes(e.category));
+      html+='<h3>'+title+'</h3>'+(lines.length?'<dl class="statement-lines">'+lines.map(e=>'<div><dt>'+esc(({base:'基礎収入',rent:'家賃',dividend:'配当',interest:e.direction==='in'?'貸付利息':'支払利息',principal:'元本返済',claims:'残債返済（元本・未払分）',stock:'株式売却',funding:'借入金',other:'その他'})[e.category])+'<small>'+esc(e.label)+'</small></dt><dd class="'+(e.direction==='out'?'expense':'')+'">'+(e.direction==='out'?'−':'＋')+amount(e.amount)+'</dd></div>').join('')+'</dl>':'<p class="legend">なし</p>');
+    }
+    if(row.transferredInterest)html+='<p class="notice">残債に組み替えた未払利息：'+amount(row.transferredInterest)+'。利払い合計には含めません。残債返済は元本・未払分を合わせた額です。</p>';
+    if(row.unpaidInterest)html+='<p class="danger">まだ払えていない利息：'+amount(row.unpaidInterest)+'。上の利払い合計は支払済みの額です。</p>';
+    return html;
+  }
+  function renderStatement() {
+    const report=state.cashReport;if(!report)return;
+    const row=report.rows.find(r=>r.player===Number($('statement-player').value))||report.rows[report.actor];
+    $('statement-title').textContent=report.kind==='round'?'ラウンド精算'+(report.complete?'結果':'中'):'手番終了の収支';
+    let html='<p>'+report.round+'ラウンド目。'+(report.kind==='round'?(report.complete?'実際に処理した収支です。':'支払不足のため精算が途中です。明細を閉じて救済操作を選んでください。'):'今回はラウンド末の収入・通常利払いはまだ発生していません。')+'</p>';
+    if(report.partial)html+='<p class="notice">更新前の精算途中から再開したため、記録開始後の入出金だけを表示します。</p>';
+    if(report.kind==='turn'&&report.forecast){html+='<h3>ラウンド末の見込み（未精算）</h3><p>現在の保有資産・契約を維持した場合です。貸付利息は相手の返済状況によって変わります。元本返済・残債返済はこの見込みに含みません。</p>'+statementRow(report.forecast,true)+'<h3>今回の手番終了で実際に動いた現金</h3>';}
+    html+=(report.kind==='turn'&&report.forecast&&!row.entries.length?'<p>今回の現金：'+amount(row.cashBefore)+' → '+amount(row.cashAfter)+'（変更なし）</p>':statementRow(row));$('statement-body').innerHTML=html;
+  }
+  function openStatement(id) {
+    const report=state.cashReport;if(!report){feedback('手番を終了すると収支明細が残ります');return;}
+    clearTimeout(timer);$('statement-player').innerHTML=report.rows.map(r=>'<option value="'+r.player+'">'+esc(name(r.player))+'</option>').join('');
+    $('statement-player').value=String(id??report.actor);$('statement-players').hidden=report.kind!=='round';renderStatement();$('statement').showModal();
+  }
+
   function dueEmergency(s,id){const p=E.player(s,id);return s.loans.filter(l=>l.borrower===id&&l.emergency&&l.dueTurn<=p.turns);}
   function request(a){
     if(paused||blocked){feedback('再開ボタンで進行を再開してください');return;}
@@ -96,7 +132,7 @@
       const check=E.dispatch(state,action);b.setAttribute('aria-disabled',String(!check.ok));
       if(!check.ok){const reason=document.createElement('small');reason.className='unavailable';reason.textContent=check.error;b.after(reason);}
     }
-    if(state.phase==='finished'&&!lastResult){lastResult=true;showResult();}schedule();
+    if(state.phase==='finished'&&!lastResult&&!reportPending){lastResult=true;showResult();}schedule();
   }
   function schedule(){clearTimeout(timer);if(!paused&&!blocked&&!document.hidden&&!document.querySelector('dialog[open]')&&E.current(state).controller==='ai'&&!['ready','finished'].includes(state.phase))timer=setTimeout(()=>{if(paused||blocked||document.hidden||document.querySelector('dialog[open]'))return;const a=LifeAI.choose(state);if(a)commit(a);},650);}
   function showResult(){
@@ -122,6 +158,10 @@
   $('cancel').onclick=()=>{pending=null;$('confirm').close();schedule();};
   $('pause').onclick=()=>{if(blocked){feedback('保存状態を確認するため再読み込みしてください');return;}paused=!paused;render();};
   document.addEventListener('visibilitychange',()=>{if(document.hidden){paused=true;clearTimeout(timer);render();}});
+  $('statement-open').onclick=()=>openStatement();
+  $('statement-player').onchange=renderStatement;
+  $('close-statement').onclick=()=>$('statement').close();
+  $('statement').addEventListener('close',()=>{if(state.phase==='finished'&&!lastResult){lastResult=true;showResult();}});
   $('help').onclick=()=>{clearTimeout(timer);$('help-dialog').showModal();};$('close-help').onclick=()=>{$('help-dialog').close();schedule();};
   $('events').onclick=()=>{
     clearTimeout(timer);

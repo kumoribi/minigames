@@ -1,8 +1,8 @@
 'use strict';
 const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const E=require('./engine.js'),AI=require('./ai.js');
-let count=0;
-function test(name,fn){fn();count++;console.log('PASS',name);}
+let count=0;const statementsOnly=process.argv.includes('--statements-only');
+function test(name,fn){if(statementsOnly&&!name.startsWith('statement:'))return;fn();count++;console.log('PASS',name);}
 function make(n=3){const s=E.create(71,Array(n).fill('human'));s.phase='turn';s.leader=0;s.active=0;s.turnOrder=Array.from({length:n},(_,i)=>i);s.turnIndex=0;s.players[0].turns=1;return s;}
 function act(s,a){const r=E.dispatch(s,a);assert(r.ok,r.error);E.assertState(r.state);return r.state;}
 function reject(s,a){const raw=JSON.stringify(s),r=E.dispatch(s,a);assert.equal(r.ok,false);assert.equal(r.state,s);assert.equal(JSON.stringify(s),raw);return r.error;}
@@ -248,6 +248,57 @@ test('AI compares company dividend return and buyback support instead of choosin
  assert.equal(AI.choose(s,'stock').company,'sun');
 });
 
+function statementFixture(){
+ let s=make();s=ordinary(s,0,100,5);s=ordinary(s,1,60,5,0);
+ s.properties[0].owner=0;s.properties[0].cost=400;s.properties[1].owner=0;s.properties[1].cost=1500;s.properties[1].occupied=false;
+ own(s,0,3,'light');own(s,0,2,'wave');return s;
+}
+function ledger(s,id=0){return s.cashReport.rows.find(r=>r.player===id);}
+function finishRound(s){while(s.round===1&&s.phase==='turn')s=act(s,{type:'end'});return s;}
+test('statement: forecast is pure and itemizes rent, vacant property, dividends, loan income and per-contract interest',()=>{
+ const s=statementFixture(),raw=JSON.stringify(s),f=E.forecast(s,0),t=E.cashTotals(f);assert.equal(JSON.stringify(s),raw);assert.equal(t.income,69);assert.equal(t.paidInterest,5);
+ assert.deepEqual(f.entries.filter(e=>e.category==='rent').map(e=>e.amount),[20,0]);assert.deepEqual(f.entries.filter(e=>e.category==='dividend').map(e=>e.amount),[0,6]);assert(f.entries.some(e=>e.label.includes('3株 × 2万円')));
+});
+test('statement: intermediate turn shows forecast without paying income and preserves that snapshot through later trades',()=>{
+ let s=statementFixture();const before=s.players.map(p=>p.cash);s=act(s,{type:'end'});assert.equal(s.cashReport.kind,'turn');assert(s.cashReport.complete);assert.equal(s.cashReport.actor,0);assert.deepEqual(s.players.map(p=>p.cash),before);assert.equal(E.cashTotals(s.cashReport.forecast).income,69);assert.equal(E.cashTotals(ledger(s)).net,0);
+ const report=JSON.stringify(s.cashReport);s=act(s,{type:'buyHappy'});assert.equal(JSON.stringify(s.cashReport),report);
+});
+test('statement: completed round balances every player and includes incoming player loan interest',()=>{
+ let s=statementFixture(),before=s.players.map(p=>p.cash);s=finishRound(s);assert.equal(s.cashReport.kind,'round');assert(s.cashReport.complete);assert.equal(s.cashReport.round,1);
+ const t=E.cashTotals(ledger(s));assert.equal(t.income,69);assert.equal(t.paidInterest,5);assert.equal(t.net,64);assert.equal(s.players[0].cash,before[0]+64);
+ assert.equal(E.cashTotals(ledger(s,1)).paidInterest,3);for(const row of s.cashReport.rows)assert.equal(row.cashAfter-row.cashBefore,E.cashTotals(row).net);
+ assert.deepEqual(E.upgradeState(JSON.parse(JSON.stringify(s))),s);
+});
+test('statement: automatic emergency repayment separates principal and unpaid interest from the unpaid forecast',()=>{
+ let s=make();s=act(s,{type:'borrow',offer:'emergency',principal:100});s.players[0].turns=2;const before=s.players[0].cash;s=act(s,{type:'end'});
+ const row=ledger(s),t=E.cashTotals(row);assert.equal(t.paidInterest,20);assert.equal(t.income,0);assert.equal(t.net,-120);assert.equal(row.cashAfter,before-120);assert.equal(row.entries.find(e=>e.category==='principal').amount,100);assert.equal(E.cashTotals(s.cashReport.forecast).paidInterest,0);
+});
+test('statement: rescue borrowing records exact borrowed cash and paid interest across save/resume without repeat income',()=>{
+ let s=make(2);own(s,0,1,'light');s=ordinary(s,0,2000,10);s.players[0].cash=0;s=finishRound(s);assert.equal(s.phase,'rescue');assert(!s.cashReport.complete);assert.equal(E.cashTotals(ledger(s)).income,42);assert.equal(E.cashTotals(ledger(s)).paidInterest,0);assert.equal(ledger(s).unpaidInterest,200);
+ s=E.upgradeState(JSON.parse(JSON.stringify(s)));s=act(s,{type:'rescueBorrow'});assert(s.cashReport.complete);const row=ledger(s),t=E.cashTotals(row);assert.equal(t.income,42);assert.equal(t.paidInterest,239);assert.equal(row.entries.find(e=>e.category==='funding').amount,198);assert.equal(t.net,1);assert.equal(row.cashAfter,1);assert.equal(row.unpaidInterest,0);
+});
+test('statement: repeated rescue sales balance actual proceeds and do not rewrite the dividend paid before rescue',()=>{
+ let s=make(2);own(s,0,10);s=ordinary(s,0,2000,5);s.players[0].cash=0;s=finishRound(s);assert.equal(s.phase,'rescue');reject(s,{type:'rescueSell',company:'sun',stock:'missing'});
+ let sales=0;while(s.phase==='rescue'){s=act(s,{type:'rescueSell',company:'sun',stock:E.stocks(s,0)[0].id});sales++;assert(sales<10);}
+ const row=ledger(s),t=E.cashTotals(row);assert.equal(sales,4);assert.equal(t.income,50);assert.equal(t.paidInterest,100);assert.equal(row.entries.filter(e=>e.category==='stock').reduce((n,e)=>n+e.amount,0),54);assert.equal(t.net,4);assert.equal(row.cashAfter,4);
+});
+test('statement: restructuring shows unpaid interest transferred to debt, not a fictional cash interest payment',()=>{
+ let s=make(2);own(s,0,1);s=ordinary(s,0,2000,10);s.players[0].cash=0;s=finishRound(s);s=act(s,{type:'restructure'});
+ const row=ledger(s),t=E.cashTotals(row);assert.equal(t.income,41);assert.equal(t.paidInterest,0);assert.equal(row.transferredInterest,200);assert.equal(t.net,0);assert.equal(row.entries.find(e=>e.category==='claims').amount,47);assert.equal(row.cashAfter,0);
+});
+test('statement: final settlement includes dividends, stock sales and principal/debt receipts with exact final cash',()=>{
+ let s=make(2);own(s,0,3);s=ordinary(s,1,100,5,0);s.round=24;s.active=1;s.turnIndex=1;s.players[1].turns=1;const before=s.players.map(p=>p.cash);s=act(s,{type:'end'});assert.equal(s.phase,'finished');
+ const t=E.cashTotals(ledger(s));assert.equal(t.income,48);assert.equal(t.paidInterest,0);assert.equal(t.net,169);assert.equal(s.players[0].cash,before[0]+169);assert.equal(ledger(s).entries.filter(e=>e.category==='stock').reduce((n,e)=>n+e.amount,0),21);assert.equal(ledger(s).entries.find(e=>e.category==='claims').amount,100);
+ for(const row of s.cashReport.rows)assert.equal(row.cashAfter-row.cashBefore,E.cashTotals(row).net);
+});
+test('statement: prior v4 saves continue, including a partially recorded old rescue with already received income',()=>{
+ let old=make(2);assert(!('cashReport' in E.upgradeState(old)));old=ordinary(old,0,2000,10);old.players[0].cash=0;old=finishRound(old);delete old.cashReport;for(const receipt of old.settlement.receipts)delete receipt.reportParts;
+ const raw=JSON.stringify(old);let s=E.upgradeState(old);assert.equal(JSON.stringify(old),raw);s=act(s,{type:'rescueBorrow'});assert(s.cashReport.partial);assert.equal(E.cashTotals(ledger(s)).income,0);assert.equal(ledger(s).cashBefore,40);assert.equal(ledger(s).cashAfter-ledger(s).cashBefore,E.cashTotals(ledger(s)).net);
+});
+test('statement: malformed totals, ledger fields and forecasts are rejected on restore',()=>{
+ const s=act(make(),{type:'end'});for(const mutate of [s=>s.cashReport.rows[0].cashAfter++,s=>s.cashReport.rows[0].entries.push({category:'base',direction:'in',amount:1.5,label:'x'}),s=>s.cashReport.forecast.entries[0].category='bad',s=>s.cashReport.version=99]){const bad=structuredClone(s);mutate(bad);assert.throws(()=>E.upgradeState(bad));}
+});
+
 test('500 deterministic games, 2-4 players, AI strategies, repeat trading and debt stress complete',()=>{
  for(let seed=0;seed<500;seed++){
   let s=E.create(seed,Array(2+seed%3).fill('ai')),steps=0;
@@ -257,4 +308,4 @@ test('500 deterministic games, 2-4 players, AI strategies, repeat trading and de
   if((seed+1)%100===0)console.log('Completed',seed+1,'/ 500 seeded games');
  }
 });
-console.log('PASS',count,'scenarios including 500 seeded games');
+console.log('PASS',count,'scenarios'+(statementsOnly?' for cash statements':' including 500 seeded games'));

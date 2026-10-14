@@ -37,6 +37,48 @@
     const limit=stock+property+ownCash;
     return {stock,property,ownCash,limit,outstanding,remaining:Math.max(0,limit-outstanding)};
   }
+  const party = (s,id) => id==='bank'?'銀行':player(s,id)?.name||'不明';
+  const loanLabel = (s,l) => party(s,l.borrower)+' → '+party(s,l.lender)+'（元本'+l.principal+'万円・'+l.rate+'%）';
+  function incomeLines(s,id) {
+    if(player(s,id).bankrupt)return [];
+    return [{category:'base',direction:'in',amount:s.config.income,label:'基礎収入'}]
+      .concat(s.properties.filter(p=>p.owner===id).map(p=>({category:'rent',direction:'in',amount:p.occupied?p.rent:0,label:p.name+(p.occupied?'':'（空室）')})))
+      .concat(s.companies.map(c=>({c,count:c.stocks.filter(t=>t.owner===id).length})).filter(x=>x.count).map(({c,count})=>({category:'dividend',direction:'in',amount:count*c.dividend,label:c.name+'：'+count+'株 × '+c.dividend+'万円'})));
+  }
+  function cashTotals(row) {
+    const sum=(direction,categories)=>row.entries.filter(e=>e.direction===direction&&(!categories||categories.includes(e.category))).reduce((n,e)=>n+e.amount,0);
+    const income=sum('in',['base','rent','dividend','interest']),paidInterest=sum('out',['interest']);
+    return {income,paidInterest,operatingNet:income-paidInterest,inflow:sum('in'),outflow:sum('out'),net:sum('in')-sum('out')};
+  }
+  function forecast(s,id) {
+    const entries=incomeLines(s,id);
+    if(!player(s,id).bankrupt)for(const l of s.loans){
+      if(l.borrower===id)entries.push({category:'interest',direction:'out',amount:interest(l),label:loanLabel(s,l)});
+      if(l.lender===id)entries.push({category:'interest',direction:'in',amount:interest(l),label:loanLabel(s,l)});
+    }
+    return {player:id,entries};
+  }
+  function beginCashReport(s,actor,partial=false) {
+    s.cashReport={version:1,id:s.gameId+':'+(s.revision+1),updatedRevision:s.revision+1,round:s.round,actor,kind:partial?'round':'turn',partial,complete:false,recording:true,
+      rows:s.players.map(p=>({player:p.id,cashBefore:p.cash,cashAfter:p.cash,transferredInterest:0,entries:[]}))};
+  }
+  function reportEntry(s,id,category,direction,amount,label) {
+    if(!s.cashReport?.recording)return;
+    s.cashReport.rows.find(r=>r.player===id).entries.push({category,direction,amount,label});
+  }
+  function repaymentParts(s,l) {
+    return [{category:'principal',amount:l.principal,label:loanLabel(s,l)},
+      {category:'interest',amount:repaymentTotal(l)-l.principal,label:loanLabel(s,l)+'・未払利息'}];
+  }
+  function finishCashReport(s) {
+    const report=s.cashReport;if(!report?.recording)return;
+    report.updatedRevision=s.revision+1;report.complete=s.phase!=='rescue';report.recording=!report.complete;
+    for(const row of report.rows){
+      row.cashAfter=player(s,row.player).cash;
+      row.unpaidInterest=s.settlement?s.loans.filter(l=>l.borrower===row.player&&!s.settlement.processed.includes(l.id)).reduce((n,l)=>n+interest(l),0):0;
+    }
+    if(report.kind==='turn'&&s.phase!=='finished'&&!player(s,report.actor).bankrupt)report.forecast=forecast(s,report.actor);
+  }
   function random(s) {
     let t=s.rng=(s.rng+0x6D2B79F5)>>>0;
     t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);
@@ -55,10 +97,14 @@
     for(let i=s.deck.length-1;i>0;i--){const j=Math.floor(random(s)*(i+1));[s.deck[i],s.deck[j]]=[s.deck[j],s.deck[i]];}
     s.leader=Math.floor(random(s)*s.players.length);s.active=s.leader;return s;
   }
-  function pay(s,from,to,n,excluding=null) {
+  function pay(s,from,to,n,excluding=null,reportParts=null) {
     if(!integer(n))fail('金額が不正です');
     const p=player(s,from);if(p&&spendable(s,from,excluding)<n)fail('使用可能な現金が'+(n-spendable(s,from,excluding))+'万円不足しています');
     if(p)p.cash-=n;const q=player(s,to);if(q)q.cash+=n;
+    if(s.cashReport?.recording)for(const part of reportParts||[{category:'other',amount:n,label:party(s,from)+' → '+party(s,to)}]){
+      if(p)reportEntry(s,from,part.category,'out',part.amount,part.label);
+      if(q)reportEntry(s,to,part.category,'in',part.amount,part.label);
+    }
   }
   function main(s,company=null) {
     if(s.phase!=='turn'||current(s).bankrupt)fail('通常の手番ではありません');
@@ -77,7 +123,7 @@
     if(player(s,id).bankrupt)fail('脱落者は借り入れできません');
     if(existing) {existing.principal+=n;existing.initialInterestDue+=money(n,20);log(s,player(s,id).name+'の強制調達 '+n+'万円を緊急融資へ追加。期限は延長しません');}
     else {newLoan(s,id,'bank',n,20,null,true);log(s,player(s,id).name+'が無担保の緊急融資 '+n+'万円・20%（次の自分の手番末が期限）');}
-    pay(s,'bank',id,n);
+    pay(s,'bank',id,n,null,[{category:'funding',amount:n,label:'緊急融資の借入'}]);
   }
   function eligibleOffer(s,id,o) {
     if(o.lender===id||(o.lender!=='bank'&&player(s,o.lender).bankrupt)||player(s,id).rehab)return false;
@@ -108,8 +154,9 @@
   function repaymentTotal(l) {return l.principal+l.arrears+(l.emergency?l.initialInterestDue:0);}
   function repay(s,l) {
     const n=repaymentTotal(l);
-    pay(s,l.borrower,s.settlement?'bank':l.lender,n,l.id);
-    if(s.settlement)s.settlement.receipts.push({to:l.lender,n});
+    const reportParts=repaymentParts(s,l);
+    pay(s,l.borrower,s.settlement?'bank':l.lender,n,l.id,reportParts);
+    if(s.settlement)s.settlement.receipts.push({to:l.lender,n,reportParts});
     s.loans=s.loans.filter(x=>x.id!==l.id);log(s,player(s,l.borrower).name+'が'+l.principal+'万円を完済。借入残高を更新');
   }
   function refinance(s,id,loanId,offerId) {
@@ -157,7 +204,7 @@
   function sellStock(s,c,stockId) {
     const i=c.stocks.findIndex(t=>t.id===stockId&&t.owner===s.active);
     if(i<0)fail('自分の株を選んでください');
-    const t=c.stocks[i];c.stocks.splice(i,1);pay(s,'bank',s.active,c.stocks.length);
+    const t=c.stocks[i];c.stocks.splice(i,1);pay(s,'bank',s.active,c.stocks.length,null,[{category:'stock',amount:c.stocks.length,label:c.name+'の売却'}]);
     log(s,current(s).name+'が'+c.name+'を'+c.stocks.length+'万円で売却（損益'+(c.stocks.length-t.cost)+'万円）');
   }
   function distributeClaims(s,id) {
@@ -167,16 +214,19 @@
     for(let i=0;rest>0;i=(i+1)%cs.length)if(parts[i]<cs[i].amount){parts[i]++;rest--;}
     for(let i=0;i<cs.length;i++) {
       p.cash-=parts[i];cs[i].amount-=parts[i];
-      if(s.settlement)s.settlement.receipts.push({to:cs[i].lender,n:parts[i]});else pay(s,'bank',cs[i].lender,parts[i]);
+      const reportParts=[{category:'claims',amount:parts[i],label:party(s,id)+' → '+party(s,cs[i].lender)+'・残債返済'}];
+      reportEntry(s,id,'claims','out',parts[i],reportParts[0].label);
+      if(s.settlement)s.settlement.receipts.push({to:cs[i].lender,n:parts[i],reportParts});else pay(s,'bank',cs[i].lender,parts[i],null,reportParts);
     }
     s.claims=s.claims.filter(c=>c.amount>0);p.rehab=s.claims.some(c=>c.borrower===id);
   }
   function liquidate(s,id,bankrupt=false) {
     const p=player(s,id);
     s.offers=s.offers.filter(o=>o.lender!==id);
-    for(const c of s.companies)for(const t of [...c.stocks].filter(t=>t.owner===id)) {c.stocks.splice(c.stocks.findIndex(x=>x.id===t.id),1);p.cash+=c.stocks.length;}
+    for(const c of s.companies)for(const t of [...c.stocks].filter(t=>t.owner===id)) {c.stocks.splice(c.stocks.findIndex(x=>x.id===t.id),1);p.cash+=c.stocks.length;reportEntry(s,id,'stock','in',c.stocks.length,c.name+'の精算売却');}
     for(const l of s.loans.filter(l=>l.borrower===id)) {
       const unpaid=s.settlement?(!s.settlement.processed.includes(l.id)?interest(l):0):(l.emergency?l.initialInterestDue:0);
+      if(s.cashReport?.recording)s.cashReport.rows.find(r=>r.player===id).transferredInterest+=l.arrears+unpaid;
       s.claims.push({id:uid(s),borrower:id,lender:l.lender,amount:l.principal+l.arrears+unpaid});
     }
     s.loans=s.loans.filter(l=>l.borrower!==id);p.rehab=true;p.bankrupt=bankrupt;distributeClaims(s,id);
@@ -199,7 +249,8 @@
   }
   function startSettlement(s) {
     s.phase='settle';
-    for(const p of alive(s)) {const rent=s.properties.filter(x=>x.owner===p.id&&x.occupied).reduce((n,x)=>n+x.rent,0);const dividend=dividends(s,p.id);p.cash+=s.config.income+rent+dividend;log(s,p.name+'の収入＋'+(s.config.income+rent+dividend)+'万円（基礎'+s.config.income+'・家賃'+rent+'・配当'+dividend+'）');}
+    if(s.cashReport?.recording)s.cashReport.kind='round';
+    for(const p of alive(s)) {const rent=s.properties.filter(x=>x.owner===p.id&&x.occupied).reduce((n,x)=>n+x.rent,0);const dividend=dividends(s,p.id);for(const line of incomeLines(s,p.id))reportEntry(s,p.id,line.category,line.direction,line.amount,line.label);p.cash+=s.config.income+rent+dividend;log(s,p.name+'の収入＋'+(s.config.income+rent+dividend)+'万円（基礎'+s.config.income+'・家賃'+rent+'・配当'+dividend+'）');}
     s.settlement={index:0,budget:s.players.map(p=>spendable(s,p.id)),receipts:[],processed:[],emergency:false};
     for(const p of alive(s).filter(p=>p.rehab))distributeClaims(s,p.id);
     s.settlement.budget=s.players.map(p=>spendable(s,p.id));continueSettlement(s);
@@ -210,10 +261,10 @@
       const p=s.players[z.index];if(p.bankrupt){z.index++;continue;}
       const due=s.loans.filter(l=>l.borrower===p.id&&!z.processed.includes(l.id)),bill=due.reduce((n,l)=>n+interest(l),0);
       if(z.budget[p.id]<bill){s.phase='rescue';s.active=p.id;return;}
-      for(const l of due) {const n=interest(l);p.cash-=n;z.budget[p.id]-=n;l.interestPayments++;l.initialInterestDue=0;z.receipts.push({to:l.lender,n});z.processed.push(l.id);}
+      for(const l of due) {const n=interest(l);p.cash-=n;z.budget[p.id]-=n;l.interestPayments++;l.initialInterestDue=0;const reportParts=[{category:'interest',amount:n,label:loanLabel(s,l)}];reportEntry(s,p.id,'interest','out',n,reportParts[0].label);z.receipts.push({to:l.lender,n,reportParts});z.processed.push(l.id);}
       z.index++;z.emergency=false;
     }
-    for(const r of z.receipts)pay(s,'bank',r.to,r.n);
+    for(const r of z.receipts)pay(s,'bank',r.to,r.n,null,r.reportParts);
     s.settlement=null;if(checkSurvivors(s))return;
     if(s.round===s.config.rounds){finish(s);return;}
     s.round++;do{s.leader=(s.leader+1)%s.players.length;}while(player(s,s.leader).bankrupt);beginRound(s);
@@ -225,7 +276,7 @@
       if(spendable(s,p.id,l.id)>=repaymentTotal(l))repay(s,l);else{liquidate(s,p.id,true);break;}
     }
     for(const p of alive(s))liquidate(s,p.id,false);
-    for(const r of s.settlement.receipts)pay(s,'bank',r.to,r.n);
+    for(const r of s.settlement.receipts)pay(s,'bank',r.to,r.n,null,r.reportParts);
     s.settlement=null;s.offers=[];s.phase='finished';
     const survivors=alive(s),best=survivors.length?Math.max(...survivors.map(p=>happiness(s,p.id))):null;
     s.winners=survivors.filter(p=>happiness(s,p.id)===best).map(p=>p.id);
@@ -301,7 +352,12 @@
   }
   function dispatch(state,action) {
     if(action.revision!==undefined&&action.revision!==state.revision)return {ok:false,error:'状態が変わりました。内容を再確認してください',state};
-    const s=copy(state);try{execute(s,action);s.revision++;assertState(s);return {ok:true,state:s};}catch(e){return {ok:false,error:e.message,state};}
+    const s=copy(state);try{
+      if(action.type==='end')beginCashReport(s,s.active);
+      else if(['rescueSell','rescueBorrow','restructure'].includes(action.type)&&s.phase==='rescue'&&!s.cashReport?.recording)beginCashReport(s,s.active,true);
+      execute(s,action);
+      finishCashReport(s);s.revision++;assertState(s);return {ok:true,state:s};
+    }catch(e){return {ok:false,error:e.message,state};}
   }
   function assertState(s) {
     if(s.schemaVersion!==4||s.rulesVersion!==5)fail('旧ルールの保存です。旧版の入口から再開してください');
@@ -338,6 +394,13 @@
     for(const c of s.claims){check(c);if(!player(s,c.borrower)||!lender(c.lender)||!integer(c.amount)||c.amount<1)fail('残債が不正です');}
     for(const p of s.players)if(!integer(debt(s,p.id)))fail('債務が不正です');
     if(s.phase==='turn'&&current(s).bankrupt)fail('脱落者に手番があります');
+    if(s.cashReport!==undefined){
+      const report=s.cashReport,categories=['base','rent','dividend','interest','principal','claims','stock','funding','other'];
+      if(report.version!==1||typeof report.id!=='string'||!integer(report.updatedRevision)||report.updatedRevision>s.revision||!integer(report.round)||report.round<1||report.round>24||!player(s,report.actor)||!['turn','round'].includes(report.kind)||typeof report.complete!=='boolean'||typeof report.partial!=='boolean'||typeof report.recording!=='boolean'||report.recording===report.complete||!Array.isArray(report.rows)||report.rows.length!==s.players.length)fail('収支明細が不正です');
+      const validEntries=row=>Array.isArray(row.entries)&&row.entries.every(e=>categories.includes(e.category)&&['in','out'].includes(e.direction)&&integer(e.amount)&&typeof e.label==='string');
+      for(const [id,row] of report.rows.entries())if(row.player!==id||!integer(row.cashBefore)||!integer(row.cashAfter)||!integer(row.unpaidInterest)||!integer(row.transferredInterest)||!validEntries(row)||row.cashAfter-row.cashBefore!==cashTotals(row).net)fail('収支明細の金額が一致しません');
+      if(report.forecast&&(!player(s,report.forecast.player)||!validEntries(report.forecast)))fail('収支見込みが不正です');
+    }
     if(s.tradeCompany&&!s.companies.some(c=>c.id===s.tradeCompany))fail('売買銘柄が不正です');
     if(s.phase==='event'&&(!s.pending||s.pending.owner!==s.active))fail('イベント選択状態が不正です');
     if(s.phase==='rescue'&&(!s.settlement||s.settlement.index!==s.active))fail('精算状態が不正です');
@@ -370,6 +433,6 @@
     for(const o of s.offers.filter(o=>o.lender===id))out.push({type:'cancelOffer',offer:o.id});
     out.push({type:'end'});return out;
   }
-  const E={create,dispatch,assertState,upgradeState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,dividends,buybackCount,happiness,happyPrice,money,spendable,creditProfile};
+  const E={create,dispatch,assertState,upgradeState,actions,player,current,alive,interest,repaymentTotal,debt,nextInterest,stocks,stockValue,dividends,buybackCount,forecast,cashTotals,happiness,happyPrice,money,spendable,creditProfile};
   if(typeof module==='object'&&module.exports)module.exports=E;else root.LifeEngine=E;
 })(typeof globalThis==='object'?globalThis:this);
