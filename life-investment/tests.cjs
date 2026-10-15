@@ -350,6 +350,20 @@ test('legacy v4: initial 500, one ticker, saved statement and prior save key rem
  const bytes=JSON.stringify({format:4,token:'old',state:old}),disk=new Map([['life-investment-save-v4',bytes]]),ctx={LifeEngine:E,localStorage:{getItem:k=>disk.get(k)??null,setItem:(k,v)=>disk.set(k,v)}};ctx.globalThis=ctx;vm.runInNewContext(fs.readFileSync(__dirname+'/storage.js','utf8'),ctx);assert.equal(ctx.LifeStorage.read(),null);ctx.LifeStorage.save(make());assert.equal(disk.get('life-investment-save-v4'),bytes);assert(disk.has('life-investment-save-v5'));
 });
 
+test('redesign: bulk happiness equals sequential purchase without consuming action slots or changing save rules',()=>{
+ for(const quantity of [1,3,8]){let s=make(),one=s;for(let i=0;i<quantity;i++)one=act(one,{type:'buyHappy'});const bulk=act(s,{type:'buyHappy',quantity});one.revision=bulk.revision;assert.deepEqual(bulk,one);assert.equal(bulk.mainUsed,false);assert.equal(bulk.financeUsed,false);assert.deepEqual(E.upgradeState(bulk),bulk);assert.equal(bulk.rulesVersion,s.rulesVersion);}
+ const s=make();s.players[0].cash=30;for(const quantity of [0,-1,1.1,'2',null,NaN,Infinity,Number.MAX_SAFE_INTEGER,3])reject(s,{type:'buyHappy',quantity});
+ const a={type:'buyHappy',quantity:2,revision:s.revision};reject(act(s,a),a);
+ let debt=ordinary(make(),0,500,10);debt.players[0].cash=80;reject(debt,{type:'buyHappy',quantity:2});
+ for(const phase of ['ready','event','rescue','finished']){const bad=make();bad.phase=phase;reject(bad,{type:'buyHappy',quantity:2});}
+});
+test('redesign: AI buys productive property, funds a feasible purchase and avoids unfunded player lending',()=>{
+ let s=make();assert.equal(AI.choose(s).type,'buyProperty');
+ s.players[0].cash=250;const a=AI.choose(s);assert.equal(a.type,'borrow');assert.notEqual(a.offer,'emergency');s=act(s,a);assert.equal(AI.choose(s).type,'buyProperty');s=act(s,AI.choose(s));assert.equal(s.properties.filter(x=>x.owner===0).length,1);assert(s.config.income+s.properties[0].rent>E.nextInterest(s,0));
+ s=make();s.active=1;s=act(s,{type:'borrow',offer:'emergency',principal:100});s.active=0;s.financeUsed=false;s.players[0].cash=0;
+ assert.notEqual(AI.choose(s).type,'offer');
+});
+
 test('500 deterministic games, 2-4 players, AI strategies, repeat trading and debt stress complete',()=>{
  for(let seed=0;seed<500;seed++){
   let s=E.create(seed,Array(2+seed%3).fill('ai')),steps=0;

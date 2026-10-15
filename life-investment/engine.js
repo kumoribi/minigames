@@ -343,10 +343,13 @@
     }
     if(a.type==='buyHappy') {
       if(s.phase!=='turn')fail('幸福は自分の通常手番中に購入できます');
-      const n=happyPrice(s);
+      const quantity=a.quantity===undefined?1:a.quantity;
+      if(!Number.isSafeInteger(quantity)||quantity<1)fail('購入数は1以上の整数で指定してください');
+      const q=BigInt(quantity),total=q*BigInt(happyPrice(s))+q*(q-1n)/2n;
+      if(total>BigInt(p.cash))fail('使用可能な現金が不足しています');
       if(p.rehab)fail('残債完済まで幸福を購入できません');
-      if(p.cash-n+stockValue(s,p.id)+s.properties.filter(x=>x.owner===p.id).reduce((n,x)=>n+money(x.cost,50),0)-debt(s,p.id)-nextInterest(s,p.id)<0)fail('購入後の純資産が次回利息を下回ります');
-      pay(s,p.id,'bank',n);s.happiness.push({id:uid(s),owner:p.id});log(s,p.name+'が幸福を'+n+'万円で購入');return;
+      if(p.cash-Number(total)+stockValue(s,p.id)+s.properties.filter(x=>x.owner===p.id).reduce((n,x)=>n+money(x.cost,50),0)-debt(s,p.id)-nextInterest(s,p.id)<0)fail('購入後の純資産が次回利息を下回ります');
+      for(let i=0;i<quantity;i++){const n=happyPrice(s);pay(s,p.id,'bank',n);s.happiness.push({id:uid(s),owner:p.id});log(s,p.name+'が幸福を'+n+'万円で購入');}return;
     }
     if(a.type==='buyProperty') {
       main(s);if(!prop||prop.owner!==null)fail('購入できる物件を選んでください');pay(s,p.id,'bank',prop.price);prop.owner=p.id;prop.cost=prop.price;s.mainUsed=true;log(s,p.name+'が'+prop.name+'を購入');return;
