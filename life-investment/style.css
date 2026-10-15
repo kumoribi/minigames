@@ -36,3 +36,6 @@ header{flex-wrap:wrap}header div{flex-wrap:wrap}#stock-order[hidden]{display:non
 @media(prefers-reduced-motion:no-preference){.newly-placed{animation:place-piece .6s ease-out}@keyframes place-piece{from{opacity:.3;transform:translateY(-14px) scale(.9)}to{opacity:1;transform:none}}}
 
 .pawn-figure{position:relative;display:block;width:100%;aspect-ratio:1;isolation:isolate}.pawn-figure .character-art{width:100%;height:100%}.pawn-figure .pawn-base{top:80%;height:15%}
+
+/* Supplied transparent PNG: align the feet with each player’s colored base. */
+.pawn-figure .character-art{transform:scale(1.1);transform-origin:50% 80%}.pawn-figure .pawn-base{top:85%;height:12%;width:54%;left:23%}
