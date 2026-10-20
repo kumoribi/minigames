@@ -114,6 +114,7 @@
     <h3>スマホ・PCの操作</h3>
     <p>画面内の案内は進行に応じて変わり、「案内を隠す」で折りたためます。「作業予約を確認」で取消・作業地点への移動ができます。襲撃表示を押すと王城に最も近い敵へ移動。ドラゴンのHPは専用バーでも確認できます。</p>
     <p>「演出を控えめに」で動きを抑制（OSのモーション軽減設定も尊重）。効果音は初期OFFで、チェックした場合だけ再生します。演出は1×〜4×でも同じ長さで表示され、戦闘の計算や強さは変わりません。</p>
+    <p>地図はPhaserで描画し、移動時の揺れ、斬撃・飛翔体、建築完成・霧解除の粒子を表示します。数字は演出より手前です。描画が重い場合は「演出を控えめに」をお試しください。静止画を使った動きで、ゲームの射程や当たり判定は変わりません。</p>
     <p>「地図移動」でドラッグ、「＋／−」で拡縮、「⌂ 王城」で中央へ戻ります。「開拓」と「地図移動」を切り替えて使ってください。PCでは右クリックで採集・集合命令、Spaceで停止切替もできます。</p>
     <h3>建物を組み合わせて強くする</h3>
     <p>農場の周囲8マスに風車を建てると、生産量が25%増えます。兵舎の上下左右に鍛冶屋を建てると、その後育成完了した兵士の攻撃・HPが20%増えます。どちらも複数隣接させても重複しません。選択した建物の黄色枠は風車、青枠は鍛冶屋の判定範囲です。監視塔を選ぶと射程が青い円で表示されます。</p>
@@ -125,6 +126,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>強化を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>同じ強化は加算で累積。この王国だけで有効。</small></div></dialog>
-<script src="engine.js?v=3"></script><script src="game.js?v=6"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=4"></script><script src="renderer.js?v=1"></script><script src="game.js?v=7"></script>
 </body>
 </html>

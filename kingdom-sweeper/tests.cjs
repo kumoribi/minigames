@@ -103,7 +103,9 @@ test('Tower upgraded range affects combat, Soldier upgrade affects existing comb
   const s=E.create(14);s.units=[];const id=E.index(9,9);s.tiles[id].building=fixtureBuilding('tower');
   const enemy={id:99,kind:'goblin',x:9,y:5.5,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];
   advance(s,.1);assert.equal(enemy.hp,100);E.chooseUpgrade(s,chest(s,0),'tower');advance(s,.1);assert.equal(enemy.hp,86);
+  const towerHit=s.effects.find(e=>e.kind==='hit');assert.equal(towerHit.sourceId,id);assert.equal(towerHit.targetId,enemy.id);
   const u={id:111,kind:'soldier',x:9,y:5.5,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
   E.chooseUpgrade(s,chest(s,1),'soldier');const hp=enemy.hp;advance(s,.05);assert(Math.abs(hp-enemy.hp-19.2)<1e-9);
+  const soldierHit=s.effects.find(e=>e.sourceId===u.id);assert.equal(soldierHit.targetId,enemy.id);assert.equal(soldierHit.fromX,u.x);
 });
 console.log(`${checks} scenarios passed.`);
