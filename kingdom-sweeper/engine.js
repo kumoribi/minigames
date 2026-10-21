@@ -16,7 +16,7 @@
   const UPGRADES = {
     farm: { name: '豊穣の祝福', description: 'すべての農場の生産量 +25%', step: .25 },
     soldier: { name: '勇者の誓い', description: '既存・今後の全兵士の攻撃 +20%', step: .2 },
-    tower: { name: '遠見の眼', description: 'すべての監視塔の射程 +30%', step: .3 },
+    tower: { name: '遠見の眼', description: '王城とすべての監視塔の射程 +30%', step: .3 },
     outpost: { name: '前線設営の支援', description: '監視塔1棟のWood60・Gold15を免除。Workerの建築8秒と通常の建築条件は必要', step: 0 }
   };
   function hasNeighbor(s, id, kind, diagonal) { return neighbors(id, diagonal).some(n => s.tiles[n].building?.kind === kind && s.tiles[n].building.hp > 0); }
@@ -322,7 +322,7 @@
       const b = t.building;
       if (b.kind === 'farm') s.resources.food += farmRate(s, t.id) * dt;
       if (b.train.length) { b.train[0].remaining -= dt; if (b.train[0].remaining <= 0) { const unit = addUnit(s, b.train.shift().kind, t.id); s.stats.trained[unit.kind]++; log(s, `${unit.kind === 'soldier' ? 'Soldier' : 'Worker'}が到着。`); } }
-      if (b.kind === 'tower') { b.cooldown = Math.max(0, b.cooldown - dt); const target = nearest(s.enemies.filter(e => e.hp > 0 && distance(e, t) <= towerRange(s)), t); if (target && !b.cooldown) { hit(s, target, 14, t); b.cooldown = 1; } }
+      if (b.kind === 'tower' || b.kind === 'keep') { b.cooldown = Math.max(0, b.cooldown - dt); const target = nearest(s.enemies.filter(e => e.hp > 0 && distance(e, t) <= towerRange(s)), t); if (target && !b.cooldown) { hit(s, target, 14, t); b.cooldown = 1; } }
     }
     for (const u of s.units) {
       if (u.hp > 0) (u.kind === 'worker' ? updateWorker : updateSoldier)(s, u, dt);

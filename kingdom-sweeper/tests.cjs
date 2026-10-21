@@ -239,6 +239,8 @@ test('Sequential treasure updates contextual choice; pending reward freezes buil
 });
 function raidFixture() {
   const s=E.create(70);s.units=[];s.tiles[s.keepId].building.hp=100000;
+  // These fixtures isolate raid scheduling, not defense combat.
+  s.tiles[s.keepId].building.cooldown=Infinity;
   for(const t of s.tiles){t.danger=0;t.flag=false;t.terrain='grass';}
   return s;
 }
@@ -305,5 +307,36 @@ test('Flag placement cancels ordinary excavation, frees Worker and does not expo
     assert.equal(s.tiles[id].nextRaidAt,due);assert.equal(s.events.length,eventCount);assert.equal(s.enemies.length,0);
     assert(!E.setFlag(s,s.keepId));assert(!E.setFlag(s,-1));
   }
+});
+test('Keep auto-defense respects radius, nearest target, single-target damage and one-second cooldown',()=>{
+  const s=E.create(80);s.units=[];const near=goblin(s,12,10),far=goblin(s,13.1,10);near.hp=near.maxHp=1000;far.hp=far.maxHp=1000;s.enemies=[far,near];
+  E.tick(s,.05);assert.equal(near.hp,986);assert.equal(far.hp,1000);assert.equal(s.effects.find(e=>e.kind==='hit').source,'keep');
+  advance(s,.5);assert.equal(near.hp,986);advance(s,.55);assert.equal(near.hp,972);
+  s.enemies=[far];s.tiles[s.keepId].building.cooldown=0;far.x=13.01;far.y=10;E.tick(s,.05);assert.equal(far.hp,1000);
+  far.x=13;far.y=10;E.tick(s,.05);assert.equal(far.hp,986);
+});
+test('Keep shares tower range upgrades while remaining eligible for first standalone tower support',()=>{
+  const s=E.create(81);s.units=[];assert.deepEqual(E.rewardOptions(s),['farm','soldier','outpost']);
+  const support=chest(s,0);assert(E.chooseUpgrade(s,support,'outpost'));assert.equal(s.towerSupport.available,1);
+  const enemy=goblin(s,13.8,10);enemy.hp=enemy.maxHp=1000;s.enemies=[enemy];E.tick(s,.05);assert.equal(enemy.hp,1000);
+  const reward=chest(s,1);assert(E.chooseUpgrade(s,reward,'tower'));E.tick(s,.05);assert.equal(enemy.hp,986);
+  assert(Math.abs(E.towerRange(s)-3.9)<1e-9);assert.equal(s.towerSupport.available,1);
+  const fresh=E.create(81);assert.equal(E.towerRange(fresh),3);assert.equal(fresh.tiles[fresh.keepId].building.cooldown,0);
+});
+test('Keep and a standalone tower fire independently with separate source IDs and cooldowns',()=>{
+  const s=E.create(82);s.units=[];const id=E.index(9,9);s.tiles[id].building=fixtureBuilding('tower');
+  const e=goblin(s,10,9);e.hp=e.maxHp=1000;s.enemies=[e];E.tick(s,.05);assert.equal(e.hp,972);
+  const hits=s.effects.filter(e=>e.kind==='hit');assert.deepEqual(new Set(hits.map(h=>h.source)),new Set(['keep','tower']));
+  assert.deepEqual(new Set(hits.map(h=>h.sourceId)),new Set([s.keepId,id]));advance(s,.5);assert.equal(e.hp,972);
+});
+test('Keep defense preserves HP, income, Worker training and stops with pause, treasure, destruction and result',()=>{
+  const s=E.create(83);s.units=[];const keep=s.tiles[s.keepId].building,e=goblin(s,12,10);e.hp=e.maxHp=1000;e.attack=0;s.enemies=[e];
+  assert.equal(keep.hp,900);assert.equal(keep.maxHp,900);assert(E.train(s,s.keepId,'worker').ok);const food=s.resources.food,wood=s.resources.wood;
+  s.speed=0;advance(s,2);assert.equal(e.hp,1000);assert.equal(keep.train[0].remaining,5);
+  s.speed=1;const reward=chest(s,0);advance(s,2);assert.equal(e.hp,1000);assert.equal(keep.train[0].remaining,5);E.chooseUpgrade(s,reward,'farm');
+  E.tick(s,.05);assert.equal(e.hp,986);assert(Math.abs(s.resources.food-(food+20+.015))<1e-9);assert(Math.abs(s.resources.wood-(wood+20+.015))<1e-9);
+  s.enemies=[];advance(s,5.1);assert.equal(s.stats.trained.worker,1);assert.equal(s.units[0].kind,'worker');
+  s.units=[];s.enemies=[e];keep.cooldown=0;keep.hp=0;const hp=e.hp;E.tick(s,.05);assert.equal(e.hp,hp);assert.equal(s.result,'defeat');
+  keep.hp=900;advance(s,2);assert.equal(e.hp,hp);
 });
 console.log(`${checks} scenarios passed.`);

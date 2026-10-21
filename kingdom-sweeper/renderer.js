@@ -189,7 +189,7 @@
           if (t.revealed && t.building?.kind === ({ farm: 'windmill', windmill: 'farm', barracks: 'blacksmith', blacksmith: 'barracks' })[kind] && t.building.hp > 0)
             g.lineStyle(3, color).lineBetween((focus.x + .5) * CELL, (focus.y + .5) * CELL, (t.x + .5) * CELL, (t.y + .5) * CELL);
         }
-      } else if (kind === 'tower') g.lineStyle(2, 0x86d2ff, .8).strokeCircle((focus.x + .5) * CELL, (focus.y + .5) * CELL, E.towerRange(world) * CELL);
+      } else if (kind === 'tower' || kind === 'keep') g.lineStyle(2, 0x86d2ff, .8).strokeCircle((focus.x + .5) * CELL, (focus.y + .5) * CELL, E.towerRange(world) * CELL);
       for (const task of world.tasks) {
         const t = world.tiles[task.tileId], x = t.x * CELL, y = t.y * CELL;
         if (task.kind === 'build') {
@@ -230,7 +230,7 @@
           scene.tweens.killTweensOf(attacker.pose); attacker.pose.kick = effect.source === 'dragon' ? -7 : -12;
           scene.tweens.add({ targets: attacker.pose, kick: 0, duration: 260, ease: 'Back.Out' });
         }
-        if (!quiet && (effect.source === 'tower' || effect.source === 'dragon')) {
+        if (!quiet && (effect.source === 'tower' || effect.source === 'keep' || effect.source === 'dragon')) {
           const projectile = scene.add.image(fromX, fromY, 'ks-spark').setTint(color).setScale(effect.source === 'dragon' ? 1.7 : .7).setDepth(6500);
           this.own(projectile, 170, { x, y, alpha: .2, ease: 'Quad.In' });
         }

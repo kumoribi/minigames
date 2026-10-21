@@ -82,7 +82,7 @@
           b.append(icon,title,detail);return b;
         }
         const base={farm:1.6,soldier:16,tower:3}[kind],current=base*(1+world.upgrades[kind]*spec.step),next=current+base*spec.step;
-        const count=kind==='soldier'?world.units.filter(u=>u.kind==='soldier').length:world.tiles.filter(t=>t.building?.kind===kind).length;
+        const count=kind==='soldier'?world.units.filter(u=>u.kind==='soldier').length:world.tiles.filter(t=>t.building?.kind===kind||(kind==='tower'&&t.building?.kind==='keep')).length;
         detail.textContent=`${spec.description} ｜ 基本${kind==='farm'?'生産':kind==='soldier'?'攻撃':'射程'} ${current.toFixed(2)} → ${next.toFixed(2)}${kind==='farm'?'/秒':kind==='tower'?'マス':''} ｜ 現在${count}${kind==='soldier'?'体':'棟'}（今後も有効）${kind==='farm'?'・風車分はさらに×1.25':kind==='soldier'?'・鍛冶兵はさらに×1.2':''}`;b.append(icon,title,detail);return b;
       }));
     }
@@ -139,13 +139,14 @@
     const k=buildKind || b?.kind;
     const forged=E.hasNeighbor(world,selected,'blacksmith',false);
     $('building-effects').textContent=({
+      keep:`王城の自動防衛：攻撃14・1秒間隔・射程${E.towerRange(world).toFixed(2)}マス（青い円）。塔の射程強化が適用されます。HP900、資源供給・Worker育成も継続。`,
       farm:`農場生産 ${E.farmRate(world,selected).toFixed(2)} FOOD/秒。黄色枠：風車の隣接判定（周囲8マス）。${E.hasNeighbor(world,selected,'windmill',true) ? '風車効果ON（×1.25）。' : '風車効果なし。'}`,
       windmill:'黄色枠内の農場を25%増産。風車を複数隣接させても重複しません。',
       barracks:`青枠：鍛冶屋の隣接判定（上下左右）。${forged ? '効果ON：育成完了時の兵士が攻撃・HP×1.2。' : '効果なし：通常兵士を育成。'}既に育成済みの兵士は変わりません。`,
       blacksmith:'青枠内の兵舎から育成完了した兵士の攻撃・HPを20%強化。複数の鍛冶屋でも重複しません。',
       tower:`青い円：射程${E.towerRange(world).toFixed(2)}マス。範囲内の敵を自動攻撃。`
     })[k] || '';
-    $('kingdom-upgrades').textContent=`農場 +${world.upgrades.farm*25}% ・ 兵士攻撃 +${world.upgrades.soldier*20}% ・ 塔射程 +${world.upgrades.tower*30}%`;
+    $('kingdom-upgrades').textContent=`農場 +${world.upgrades.farm*25}% ・ 兵士攻撃 +${world.upgrades.soldier*20}% ・ 王城・塔射程 +${world.upgrades.tower*30}%`;
     let actions='';
     $('army-pursue').setAttribute('aria-pressed',String(world.armyMode==='pursue'));
     $('army-defend').setAttribute('aria-pressed',String(world.armyMode==='defend'));
