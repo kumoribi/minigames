@@ -141,7 +141,8 @@
           const scale = Math.min(size / sprite.width, size / sprite.height); sprite.setScale(scale);
           const shadow = scene.add.ellipse(0, 12, size * .6, 12, 0x071c16, .45);
           const hp = scene.add.graphics(), retreat = scene.add.text(0, -size * .65 - 14, '退避', { fontSize: '12px', color: '#ffd0aa', backgroundColor: '#193326' }).setOrigin(.5, 1).setVisible(false);
-          const container = scene.add.container(0, 0, [shadow, sprite, hp, retreat]);
+          const elite = scene.add.text(0, -size * .65 - 16, '強襲 ×2', {fontSize:'13px',color:'#ffdf9a',backgroundColor:'#631c24'}).setOrigin(.5,1).setVisible(Boolean(unit.empowered));
+          const container = scene.add.container(0, 0, [shadow, sprite, hp, retreat, elite]);
           view = { container, sprite, shadow, hp, retreat, size, scale, kind: unit.kind, x: unit.x, y: unit.y, pose: { kick: 0 }, lastHit: -1000 };
           this.units.set(unit.id, view);
         }
@@ -155,7 +156,7 @@
         view.sprite.setY(view.size * .35 + bob).setAngle(quiet ? 0 : (walking ? Math.sin(phase) * 3 : 0) + view.pose.kick);
         if (walking && Math.abs(dx) > .0001) view.sprite.setFlipX(dx < 0);
         view.hp.clear();
-        if (unit.hp < unit.maxHp || unit.kind === 'dragon') {
+        if (unit.hp < unit.maxHp || unit.kind === 'dragon' || unit.empowered) {
           const width = unit.kind === 'dragon' ? 64 : unit.kind === 'worker' ? 38 : 44, y = -view.size * .65 - 8;
           view.hp.fillStyle(0x251b16).fillRect(-width / 2, y, width, 5);
           view.hp.fillStyle(unit.kind === 'goblin' || unit.kind === 'dragon' ? 0xfa7265 : 0xa5e28c).fillRect(-width / 2, y, width * Math.max(0, Math.min(1, unit.hp / unit.maxHp)), 5);

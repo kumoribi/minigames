@@ -2,6 +2,7 @@
 (function (root) {
   'use strict';
   const SIZE = 20;
+  const RAID_RULES = Object.freeze({ first: 90, spread: 60, interval: 60, ambushMultiplier: 2 });
   const BUILDINGS = {
     keep: { name: 'Keep / 王城', hp: 900, cost: {}, time: 0 },
     farm: { name: 'Farm / 農場', hp: 160, cost: { wood: 30 }, time: 5 },
@@ -124,12 +125,13 @@
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, speed: 1, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
     s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
     s.towerSupport = { claimed: 0, available: 0, built: 0 };
+    s.raids = { spawned: 0, ambushes: 0 };
     s.armyMode = 'pursue'; s.defenseRadius = 3;
     s.stats = { spent: { wood: 0, food: 0, gold: 0 }, trained: { worker: 0, soldier: 0 }, lost: { worker: 0, soldier: 0 } };
     for (let id = 0; id < SIZE * SIZE; id++) {
       const p = xy(id), safe = Math.max(Math.abs(p.x - 10), Math.abs(p.y - 10)) <= 2, r = random();
       const terrain = r < .2 ? 'forest' : r < .29 ? 'food' : r < .37 ? 'mine' : r < .41 ? 'chest' : 'grass';
-      s.tiles.push({ id, ...p, terrain, danger: !safe && random() < .09 ? 1 : 0, clue: 0, revealed: Math.abs(p.x - 10) <= 1 && Math.abs(p.y - 10) <= 1, flag: false, amount: terrain === 'forest' ? 180 : terrain === 'mine' ? 150 : 130, building: null });
+      s.tiles.push({ id, ...p, terrain, danger: !safe && random() < .09 ? 1 : 0, clue: 0, revealed: Math.abs(p.x - 10) <= 1 && Math.abs(p.y - 10) <= 1, flag: false, nextRaidAt: RAID_RULES.first + id % RAID_RULES.spread, amount: terrain === 'forest' ? 180 : terrain === 'mine' ? 150 : 130, building: null });
     }
     const far = s.tiles.filter(t => Math.max(Math.abs(t.x - 10), Math.abs(t.y - 10)) >= 7);
     const dragon = far[Math.floor(random() * far.length)]; dragon.danger = 3; dragon.terrain = 'lair'; s.dragonId = dragon.id;
@@ -142,7 +144,7 @@
     if(structured)planRegions(s);
     for(const tile of s.tiles)tile.clue=neighbors(tile.id).reduce((sum,id)=>sum+s.tiles[id].danger,0);
     for (let i = 0; i < 3; i++) addUnit(s, 'worker', s.keepId);
-    log(s, '王城を守り、数字から敵を推測。まず農場と兵舎を建てよう。');
+    log(s, '1:30以降、未封印拠点と誤った旗から定期出撃。数字で推理し、軍備と封印を急ごう。');
     return s;
   }
   function canPay(s, cost) { return Object.entries(cost).every(([k, n]) => s.resources[k] >= n); }
@@ -153,11 +155,19 @@
   }
   function frontier(s, id) { return !s.tiles[id].revealed && neighbors(id, false).some(n => s.tiles[n].revealed); }
   function hasTask(s, id) { return s.tasks.some(t => t.tileId === id); }
-  function queueExplore(s, id) {
-    const t = s.tiles[id]; if (s.result || !t || t.revealed || hasTask(s, id)) return false;
-    // Deep reservations wait until an adjacent tile becomes part of the territory.
-    s.tasks.push({ id: s.nextId++, kind: 'explore', tileId: id, remaining: 3, workerId: null }); return true;
+  function setFlag(s, id) {
+    const t = s.tiles[id]; if(s.result || !t || t.revealed) return false;
+    t.flag = !t.flag;
+    // A newly placed flag stops ordinary excavation, but never resets a raid clock.
+    if(t.flag && s.tasks.some(q=>q.tileId===id&&q.kind==='explore'&&!q.assault)) cancelTask(s,id);
+    return true;
   }
+  function queueExplore(s, id, { assault = false } = {}) {
+    const t = s.tiles[id]; if (s.result || !t || t.revealed || hasTask(s, id) || (t.flag && !assault) || (assault && !t.flag)) return false;
+    // Deep reservations wait until an adjacent tile becomes part of the territory.
+    s.tasks.push({ id: s.nextId++, kind: 'explore', tileId: id, remaining: 3, workerId: null, assault }); return true;
+  }
+  function queueAssault(s,id) { return queueExplore(s,id,{assault:true}); }
   function setArmyMode(s, mode) {
     if (s.result || !['pursue', 'defend'].includes(mode)) return false;
     s.armyMode = mode; return true;
@@ -173,7 +183,7 @@
   function queuePreparedExplore(s, id, count) {
     const t = s.tiles[id], rally = s.tiles[s.rally];
     if (!t || !t.flag || t.revealed || !Number.isInteger(count) || count < 1 || count > 10 ||
-        s.armyMode !== 'defend' || !rally?.revealed || distance(t, rally) > s.defenseRadius || !queueExplore(s, id)) return false;
+        s.armyMode !== 'defend' || !rally?.revealed || distance(t, rally) > s.defenseRadius || !queueAssault(s, id)) return false;
     s.tasks.at(-1).preparation = { rally: s.rally, count }; return true;
   }
   function queueSafeNeighbors(s, id) {
@@ -206,34 +216,51 @@
     if (!canPay(s, UNIT_COST[kind])) return { ok: false, reason: '育成資源が不足しています。' };
     pay(s, UNIT_COST[kind]); b.train.push({ kind, remaining: kind === 'worker' ? 5 : 7 }); return { ok: true };
   }
-  function spawn(s, kind, tile, count = 1) {
+  function spawn(s, kind, tile, count = 1, empowered = false) {
     for (let i = 0; i < count; i++) {
       const a = i * Math.PI * 2 / count, boss = kind === 'dragon';
-      s.enemies.push({ id: s.nextId++, kind, x: tile.x + Math.cos(a) * .12, y: tile.y + Math.sin(a) * .12, hp: boss ? 1200 : 48, maxHp: boss ? 1200 : 48, attack: boss ? 28 : 7, cooldown: 1.5 });
+      const multiplier = empowered ? RAID_RULES.ambushMultiplier : 1;
+      s.enemies.push({ id: s.nextId++, kind, x: tile.x + Math.cos(a) * .12, y: tile.y + Math.sin(a) * .12, hp: (boss ? 1200 : 48) * multiplier, maxHp: (boss ? 1200 : 48) * multiplier, attack: (boss ? 28 : 7) * multiplier, cooldown: 1.5, empowered });
     }
   }
-  function reveal(s, id) {
-    const tile = s.tiles[id]; if (tile.revealed) return;
+  function updateRaids(s) {
+    let count=0;
+    for(const tile of s.tiles) if(s.time + 1e-9 >= tile.nextRaidAt) {
+      // Advance even inactive/sealed cells: toggling flags cannot postpone the schedule.
+      tile.nextRaidAt += RAID_RULES.interval;
+      if(!tile.revealed && ((tile.danger===1 && !tile.flag) || (tile.danger===0 && tile.flag))) {
+        spawn(s,'goblin',tile);count++;
+      }
+    }
+    if(count){s.raids.spawned+=count;log(s,`定期出撃：敵${count}体が侵攻。未封印拠点・誤った旗を見直そう。`,'danger');}
+  }
+  function reveal(s, id, { assault = false } = {}) {
+    const tile = s.tiles[id]; if (s.result || !tile || tile.revealed) return;
+    const prepared=assault&&tile.flag;
     tile.revealed = true; tile.flag = false;
     if (tile.danger === 3) { s.dragonAwake = true; spawn(s, 'dragon', tile); log(s, 'Dragonが目覚めた！軍を集結して王城を守れ。', 'danger'); }
-    else if (tile.danger === 1) { tile.terrain = 'camp'; spawn(s, 'goblin', tile, 3 + id % 3); log(s, 'Goblin Campを開拓。迎撃開始！', 'danger'); }
+    else if (tile.danger === 1) {
+      tile.terrain = 'camp';spawn(s, 'goblin', tile, 3 + id % 3, !prepared);
+      if(!prepared)s.raids.ambushes++;
+      log(s,prepared?'拠点攻略開始。通常部隊を迎撃！':'奇襲失敗！HP・攻撃2倍の強化部隊が出現！','danger');
+    }
     else if (tile.terrain === 'chest') { s.resources.gold += 35; s.resources.wood += 20; s.resources.food += 20; tile.terrain = 'grass'; s.pendingRewards.push({ id: s.nextId++, tileId: id }); log(s, '宝箱発見！資源を獲得。3つの報酬から1つ選ぼう。', 'reward'); }
     s.effects.push({ kind: 'reveal', x: tile.x, y: tile.y, life: .8 });
   }
   // Four-neighbour paths keep movement inside revealed territory.
-  function path(s, from, goals) {
+  function path(s, from, goals, throughFog = false) {
     const start = index(Math.max(0, Math.min(19, Math.round(from.x))), Math.max(0, Math.min(19, Math.round(from.y))));
     const target = new Set(goals), queue = [start], previous = new Map([[start, null]]);
     if (target.has(start)) return [];
     for (let i = 0; i < queue.length; i++) for (const n of neighbors(queue[i], false)) {
-      if (!s.tiles[n].revealed || previous.has(n)) continue;
+      if ((!throughFog && !s.tiles[n].revealed) || previous.has(n)) continue;
       previous.set(n, queue[i]); queue.push(n);
       if (target.has(n)) { const route = []; let cur = n; while (cur !== start) { route.unshift(cur); cur = previous.get(cur); } return route; }
     }
     return null;
   }
   function move(s, u, goals, speed, dt) {
-    const route = path(s, u, goals); if (!route) return false;
+    const route = path(s, u, goals, u.kind === 'goblin' || u.kind === 'dragon'); if (!route) return false;
     const dest = route.length ? s.tiles[route[0]] : s.tiles[goals.find(id => distance(s.tiles[id], u) < .8) ?? goals[0]];
     if (!dest) return false;
     const d = distance(u, dest), step = Math.min(d, speed * dt);
@@ -256,7 +283,7 @@
       if (move(s, u, taskGoals(s, task), 1.8, dt)) {
         task.remaining -= dt;
         if (task.remaining <= 0) {
-          if (task.kind === 'explore') reveal(s, task.tileId);
+          if (task.kind === 'explore') reveal(s, task.tileId, {assault:task.assault});
           else { const tile = s.tiles[task.tileId]; tile.building = building(task.building); if(task.supported){tile.building.supported=true;s.towerSupport.built++;} s.effects.push({ kind: 'build', x: tile.x, y: tile.y, life: .8 }); log(s, `${BUILDINGS[task.building].name}が完成。`); }
           s.tasks = s.tasks.filter(t => t !== task); u.task = null;
         }
@@ -301,6 +328,7 @@
       if (u.hp > 0) (u.kind === 'worker' ? updateWorker : updateSoldier)(s, u, dt);
       if (s.pendingRewards.length) return; // Pause immediately before any further movement or combat.
     }
+    updateRaids(s);
     for (const e of s.enemies) if (e.hp > 0) {
       e.cooldown = Math.max(0, e.cooldown - dt);
       const nearby = nearest(s.units.filter(u => u.hp > 0 && distance(u, e) < 4), e), target = nearby || s.tiles[s.keepId];
@@ -316,6 +344,6 @@
     if (s.tiles[s.keepId].building.hp <= 0) { s.result = 'defeat'; log(s, '王城が陥落しました。', 'danger'); }
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
   }
-  const api = { SIZE, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, queueExplore, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { SIZE, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

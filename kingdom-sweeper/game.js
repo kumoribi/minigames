@@ -37,7 +37,7 @@
   }));
   $('guide-toggle').addEventListener('click',()=>{const hide=!document.querySelector('.guide').classList.contains('collapsed');document.querySelector('.guide').classList.toggle('collapsed',hide);$('guide-toggle').textContent=hide?'案内を表示':'案内を隠す';$('guide-toggle').setAttribute('aria-expanded',String(!hide));});
   $('threat').addEventListener('click',()=>{const enemy=[...world.enemies].sort((a,b)=>Math.hypot(a.x-10,a.y-10)-Math.hypot(b.x-10,b.y-10))[0];if(enemy){selected=E.index(Math.max(0,Math.min(19,Math.round(enemy.x))),Math.max(0,Math.min(19,Math.round(enemy.y))));center(selected);render();}});
-  const helpSeenKey = 'kingdom-sweeper-help-v1';
+  const helpSeenKey = 'kingdom-sweeper-help-v2';
   let firstHelp = true, helpSpeed = 0;
   try { firstHelp = localStorage.getItem(helpSeenKey) !== 'seen'; } catch (_) { /* Storage may be unavailable in private/file contexts. */ }
   world.speed = 0;
@@ -62,7 +62,7 @@
     document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
     document.querySelectorAll('[data-build]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.build===kind)));
     document.querySelectorAll('[data-dock]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.dock===(mode==='select'?'army':mode))));
-    $('mode-help').textContent=({explore:'未探索マスをタップして開拓予約。ドラッグでまとめて予約。',select:'マスをタップして情報確認。資源採集・育成・集合を指示できます。',flag:'未探索マスをタップして危険メモを付ける／外す。',pan:'地図をドラッグして移動。＋／−で拡大・縮小できます。',build:`${kind ? E.BUILDINGS[kind].name : ''}：開拓済みの空き平地をタップ。`})[mode];
+    $('mode-help').textContent=({explore:'未探索マスをタップして開拓予約。敵拠点を旗なしで開くとHP・攻撃2倍の部隊！',select:'マスをタップして情報確認。旗付きマスは選択情報から拠点攻略。',flag:'未探索マスをタップして旗を付ける／外す。正解は出撃封印、誤旗は敵の出撃元！',pan:'地図をドラッグして移動。＋／−で拡大・縮小できます。',build:`${kind ? E.BUILDINGS[kind].name : ''}：開拓済みの空き平地をタップ。`})[mode];
   }
   function button(action,label) {return `<button type="button" data-action="${action}">${label}</button>`;}
   $('army-pursue').addEventListener('click',()=>{E.setArmyMode(world,'pursue');render();});
@@ -117,9 +117,10 @@
     $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400`;
     $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.pendingRewards.length ? '宝箱の強化を選択中・停止' : world.speed===0 ? '停止中・予約できます' : world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : world.dragonAwake ? 'Dragonとの決戦' : '領土を広げ、軍備を整えよう';
     $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
+    $('raid-status').textContent=world.time<E.RAID_RULES.first?`定期出撃まで最短 ${Math.ceil(E.RAID_RULES.first-world.time)}秒（ゲーム内）。全域の未封印拠点・誤旗が対象。`:`定期出撃中：各地点60秒周期。出撃累計 ${world.raids.spawned}体 / 奇襲失敗 ${world.raids.ambushes}回。旗の正誤は非表示。`;
     const has=kind=>world.tiles.some(t=>t.building?.kind===kind),soldiers=world.units.filter(u=>u.kind==='soldier').length;
     if(has('farm'))guideStage=Math.max(guideStage,1);if(has('farm')&&has('barracks'))guideStage=Math.max(guideStage,2);if(soldiers>=3)guideStage=Math.max(guideStage,3);if(world.kills)guideStage=Math.max(guideStage,4);if(world.dragonAwake)guideStage=5;
-    const goals=[['農場で食料を安定させよう','建築 → 農場 → 空き草地。空き地がなければ外側を少し開拓。予約後は1×で進行。'],['兵舎を建てよう','建築 → 兵舎 → 空き草地。木材不足なら作業員の採集時間を確保。'],['兵士を育成しよう','軍備、または兵舎を選択 → 兵士育成。まず3体を目標に。'],['数字を読んで敵拠点へ','数字は周囲8マスの初期危険度。少しずつ開拓し、旗で推測をメモ。'],['王国を育て、ドラゴンへ備えよう','農場・民家・兵士・塔を増強。軍の集合地点を決めてから巣の候補を開拓。'],['ドラゴンとの決戦','兵士は自動迎撃。襲撃表示を押して戦況を確認し、王城を守ろう。']];
+    const goals=[['農場で食料を安定させよう','停止中に農場・兵舎を予約。1:30以降、全域の未封印拠点から敵が出撃します。'],['兵舎を建てよう','兵舎を空き草地に建築。安全マスへの誤旗も敵を生むので、数字で推理しよう。'],['兵士を育成しよう','兵舎を選択 → 兵士育成。まず3体を目標に。旗なし拠点の開拓は強化部隊を招きます。'],['数字で敵拠点を封印しよう','正しい旗は出撃を封印。誤旗は出撃元。旗付きマスの攻略は選択情報から明示的に予約。'],['出撃を抑え、ドラゴンへ備えよう','正しい旗で出撃元を封印し、侵攻部隊を迎撃。旗付き拠点の計画攻略は通常部隊との戦い。'],['ドラゴンとの決戦','兵士は自動迎撃。定期出撃も続きます。襲撃表示から戦況を確認し、王城を守ろう。']];
     $('guide-step').textContent=`王国づくり ${guideStage+1} / 6`;$('guide-title').textContent=world.result?'戦いが終わりました':goals[guideStage][0];$('guide-text').textContent=goals[guideStage][1];
     $('threat').hidden=!world.enemies.length;const nearestEnemy=[...world.enemies].sort((a,b)=>Math.hypot(a.x-10,a.y-10)-Math.hypot(b.x-10,b.y-10))[0];
     if(nearestEnemy){const dx=nearestEnemy.x-10,dy=nearestEnemy.y-10;$('threat').textContent=`⚠ ${Math.hypot(dx,dy)<2?'王城付近で交戦':`${Math.abs(dx)>Math.abs(dy)?dx>0?'東':'西':dy>0?'南':'北'}方面に敵`} ${world.enemies.length}体 · 押して現場へ`;}
@@ -133,7 +134,7 @@
     $('use-tower-support').disabled=!support.available||Boolean(world.result);
     const t=world.tiles[selected], b=t.building, task=world.tasks.find(q=>q.tileId===selected);
     $('tile-title').textContent=`${b ? E.BUILDINGS[b.kind].name : t.revealed ? names[t.terrain] : '未探索'} (${t.x+1}, ${t.y+1})`;
-    $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 危険メモあり。' : ''}`;
+    $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 旗あり：正解なら封印、誤旗なら出撃元。正誤は不明。' : ' 拠点を旗なしで開くと強化部隊（HP・攻撃2倍）。'}`;
     if(b?.supported||task?.supported)$('tile-description').textContent+=' ・ 設営支援の塔（資源費用0）';
     const k=buildKind || b?.kind;
     const forged=E.hasNeighbor(world,selected,'blacksmith',false);
@@ -150,12 +151,12 @@
     $('army-defend').setAttribute('aria-pressed',String(world.armyMode==='defend'));
     const rally=world.tiles[world.rally];
     $('army-orders').textContent=`集合地点 (${rally.x+1},${rally.y+1})：${world.armyMode==='defend'?'半径3マスを防衛。範囲外は追わず、接近されたら自衛。':'全域の敵を自動追撃。'}`;
-    if(!t.revealed && t.flag && !task) actions+=button('prepare','集結後に開拓予約');
+    if(!t.revealed && t.flag && !task) actions+=button('assault','旗を維持して拠点攻略予約')+button('prepare','集結後に拠点攻略予約');
     if(t.revealed && t.clue===0) actions+=button('safe','周囲の安全マスをまとめて予約');
     if(task?.preparation) $('tile-description').textContent+=` ・ ${E.preparationStatus(world,task)||'集結完了・開拓準備中'} ・ 集合(${world.tiles[task.preparation.rally].x+1},${world.tiles[task.preparation.rally].y+1})`;
     const stats=world.stats;
     $('result-stats').textContent=`損失：Worker ${stats.lost.worker}体 / 兵士 ${stats.lost.soldier}体。育成完了：Worker ${stats.trained.worker}体 / 兵士 ${stats.trained.soldier}体。実支出：WOOD ${stats.spent.wood} / FOOD ${stats.spent.food} / GOLD ${stats.spent.gold}（取消返金を控除、育成待ちを含む）。`;
-    if(!t.revealed) actions+=(!task ? button('explore',t.flag ? '旗を外して開拓予約' : '開拓予約') : '')+button('flag',t.flag ? '旗を外す' : '危険メモ');
+    if(!t.revealed) actions+=(!task && !t.flag ? button('explore','開拓予約（拠点なら強化部隊）') : '')+button('flag',t.flag ? '旗を外す（出撃再開の危険）' : '旗を立てる（誤旗は敵出現）');
     else {
       if(b?.kind==='keep') actions+=button('worker','Worker育成 / FOOD 25');
       if(b?.kind==='barracks') actions+=button('soldier','Soldier育成 / FOOD 30・WOOD 15');
@@ -167,7 +168,7 @@
     if(actions!==actionKey){$('tile-actions').innerHTML=actions;actionKey=actions;}
     $('queue-count').textContent=world.tasks.length;
     $('queue-open').textContent=`作業予約 ${world.tasks.length}件を確認`;
-    const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : q.preparation ? '準備開拓' : '開拓'} (${t.x+1},${t.y+1}) <small>${E.preparationStatus(world,q) || (q.workerId ? `${Math.ceil(q.remaining)}秒` : '接続・作業員待ち')}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
+    const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : q.preparation ? '集結攻略' : q.assault ? '拠点攻略' : '開拓'} (${t.x+1},${t.y+1}) <small>${E.preparationStatus(world,q) || (q.workerId ? `${Math.ceil(q.remaining)}秒` : '接続・作業員待ち')}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
     if(queues!==queueKey){$('queue-list').innerHTML=queues;queueKey=queues;}
     if(lastEvent!==world.events.at(-1)) {lastEvent=world.events.at(-1);notice(lastEvent.text);$('log').replaceChildren(...world.events.slice(-6).reverse().map(e=>{const li=document.createElement('li');li.textContent=`${timeText(e.time)} ${e.text}`;return li;}));}
     renderReward();
@@ -183,8 +184,8 @@
     selected=id;if(world.result) return;
     const t=world.tiles[id];
     if(mode==='build'){const r=E.queueBuild(world,id,buildKind);notice(r.ok ? '建築を予約しました。' : r.reason);}
-    else if(mode==='flag'&&!t.revealed){t.flag=!t.flag;notice(t.flag ? '危険メモを付けました。開拓する場合は旗を外してください。' : '危険メモを外しました。');}
-    else if(mode==='explore'&&!t.revealed){notice(t.flag ? '危険メモのあるマスです。先に旗を外してください。' : E.queueExplore(world,id) ? '開拓を予約しました。' : 'すでに開拓予約済みです。');}
+    else if(mode==='flag'&&!t.revealed){E.setFlag(world,id);notice(t.flag ? '旗を立てました。正解なら封印、誤旗なら出撃元です。通常開拓予約は取消しました。' : '旗を外しました。拠点なら定期出撃が再開します。');}
+    else if(mode==='explore'&&!t.revealed){notice(t.flag ? '旗付きマスは選択情報の「拠点攻略予約」を使ってください。' : E.queueExplore(world,id) ? '開拓を予約。敵拠点ならHP・攻撃2倍の強化部隊が出現します。' : 'すでに開拓予約済みです。');}
     render();if(mobile.matches&&mode!=='build'&&(t.revealed||mode==='flag'||mode==='select'))sheet('detail');if(mode==='build')sheet(null);
   }
   canvas.addEventListener('pointerdown',e=>{if(e.button!==0)return;const id=point(e);if(id===null)return;pointer={id:e.pointerId,x:e.clientX,y:e.clientY,left:viewport.scrollLeft,top:viewport.scrollTop,start:id,last:id,cells:new Set([id])};canvas.setPointerCapture(e.pointerId);e.preventDefault();});
@@ -192,11 +193,11 @@
   canvas.addEventListener('pointerup',e=>{if(!pointer||pointer.id!==e.pointerId)return;const p=pointer;pointer=null;if(mode==='pan')return;if(mode==='explore'&&p.cells.size>1){let count=0;for(const id of p.cells)if(!world.tiles[id].flag&&E.queueExplore(world,id))count++;selected=p.last;render();notice(`${count}マスを開拓予約しました。奥のマスは道がつながるまで待機します。`);}else operate(p.last);});
   canvas.addEventListener('pointercancel',()=>{pointer=null;});
   canvas.addEventListener('contextmenu',e=>{e.preventDefault();const id=point(e);if(id===null||world.result)return;selected=id;const t=world.tiles[id];if(!t.revealed){if(!t.flag)E.queueExplore(world,id);}else if(['forest','food','mine'].includes(t.terrain)){world.workerFocus=t.terrain;notice('全Workerの採集対象を変更しました。');}else{world.rally=id;notice('兵士の集合地点を変更しました。');}render();});
-  $('tile-actions').addEventListener('click',e=>{const action=e.target.closest('[data-action]')?.dataset.action;if(!action||world.result)return;const t=world.tiles[selected];if(action==='worker'||action==='soldier'){const r=E.train(world,selected,action);notice(r.ok ? '育成を予約しました。' : r.reason);}if(action==='explore'){t.flag=false;E.queueExplore(world,selected);}if(action==='flag')t.flag=!t.flag;if(action==='gather'){world.workerFocus=t.terrain;notice('全Workerの採集対象を変更しました。');}if(action==='rally'){world.rally=selected;notice('兵士の集合地点を変更しました。');}if(action==='auto'){world.workerFocus=null;notice('採集を自動分担に戻しました。');}if(action==='cancel')E.cancelTask(world,selected);render();});
+  $('tile-actions').addEventListener('click',e=>{const action=e.target.closest('[data-action]')?.dataset.action;if(!action||world.result)return;const t=world.tiles[selected];if(action==='worker'||action==='soldier'){const r=E.train(world,selected,action);notice(r.ok ? '育成を予約しました。' : r.reason);}if(action==='explore'){notice(E.queueExplore(world,selected)?'開拓を予約。旗なし拠点は強化部隊が出現します。':'開拓予約できません。');}if(action==='assault')notice(E.queueAssault(world,selected)?'旗を維持した拠点攻略を予約。正しい旗なら通常部隊との戦いです。':'未予約の旗付きマスを選んでください。');if(action==='flag'){E.setFlag(world,selected);notice(t.flag?'旗を立てました。正解なら封印、誤旗なら出撃元。通常開拓予約は取消しました。':'旗を外しました。拠点なら出撃が再開します。');}if(action==='gather'){world.workerFocus=t.terrain;notice('全Workerの採集対象を変更しました。');}if(action==='rally'){world.rally=selected;notice('兵士の集合地点を変更しました。');}if(action==='auto'){world.workerFocus=null;notice('採集を自動分担に戻しました。');}if(action==='cancel')E.cancelTask(world,selected);render();});
   $('queue-list').addEventListener('click',e=>{const locate=e.target.closest('[data-locate]'),cancel=e.target.closest('[data-cancel]');if(locate){selected=Number(locate.dataset.locate);center(selected);}if(cancel)E.cancelTask(world,Number(cancel.dataset.cancel));render();});
   $('tile-actions').addEventListener('click',e=>{
     const action=e.target.closest('[data-action]')?.dataset.action;if(world.result)return;
-    if(action==='prepare')notice(E.queuePreparedExplore(world,selected,Number($('prepare-count').value))?'集結後の開拓を予約しました。':'防衛モードにして、集合地点から3マス以内の未予約の旗付きマスを選んでください。');
+    if(action==='prepare')notice(E.queuePreparedExplore(world,selected,Number($('prepare-count').value))?'旗を維持した集結攻略を予約しました。':'防衛モードにして、集合地点から3マス以内の未予約の旗付きマスを選んでください。');
     if(action==='safe')notice(`${E.queueSafeNeighbors(world,selected)}マスを予約。Workerの採集時間にも注意してください。`);
     if(action==='prepare'||action==='safe')render();
   });

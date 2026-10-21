@@ -237,4 +237,73 @@ test('Sequential treasure updates contextual choice; pending reward freezes buil
   const fresh=E.create(66);assert.deepEqual(fresh.towerSupport,{claimed:0,available:0,built:0});assert.deepEqual(E.rewardOptions(fresh),['farm','soldier','outpost']);
   s.result='victory';assert(!E.chooseUpgrade(s,first,'outpost'));assert(!E.cancelTask(s,id));
 });
+function raidFixture() {
+  const s=E.create(70);s.units=[];s.tiles[s.keepId].building.hp=100000;
+  for(const t of s.tiles){t.danger=0;t.flag=false;t.terrain='grass';}
+  return s;
+}
+test('Global raids: 100 seeds produce one raider per unsealed camp by 150s, without exploration',()=>{
+  for(let seed=0;seed<100;seed++){
+    const s=E.create(seed),clues=s.tiles.map(t=>t.clue),camps=s.tiles.filter(t=>t.danger===1).length;
+    s.time=149.95;E.tick(s,.05);assert.equal(s.enemies.length,camps);assert.equal(s.raids.spawned,camps);
+    assert.equal(s.tiles.filter(t=>t.revealed).length,9);assert(!s.dragonAwake);assert.deepEqual(s.tiles.map(t=>t.clue),clues);
+    const sealed=E.create(seed);for(const t of sealed.tiles)if(t.danger===1)E.setFlag(sealed,t.id);
+    sealed.time=149.95;E.tick(sealed,.05);assert.equal(sealed.enemies.length,0);
+  }
+});
+test('Raid grace, 60s recurrence, fog movement, no territory reveal and no passive Dragon',()=>{
+  const s=raidFixture(),id=0;s.tiles[id].danger=1;
+  advance(s,89.9);assert.equal(s.enemies.length,0);advance(s,.2);assert.equal(s.enemies.length,1);
+  const e=s.enemies[0],distanceBefore=Math.hypot(e.x-10,e.y-10);advance(s,5);assert(Math.hypot(e.x-10,e.y-10)<distanceBefore);
+  assert(!s.tiles[id].revealed);assert.equal(s.tiles.filter(t=>t.revealed).length,9);
+  advance(s,54.8);assert.equal(s.raids.spawned,2);assert(s.tiles[s.keepId].building.hp<100000 || s.enemies.length>0);
+  const dragon=raidFixture();dragon.tiles[0].danger=3;advance(dragon,160);assert.equal(dragon.enemies.length,0);assert(!dragon.dragonAwake);
+});
+test('Correct flags seal future waves only; removal and rapid toggling never reset due time',()=>{
+  const s=raidFixture();s.tiles[0].danger=1;advance(s,90.1);const first=s.enemies[0];assert(first);
+  E.setFlag(s,0);const due=s.tiles[0].nextRaidAt;advance(s,60);assert.equal(s.raids.spawned,1);assert(s.enemies.includes(first));
+  assert.equal(s.tiles[0].nextRaidAt,due+60);E.setFlag(s,0);advance(s,59.7);
+  const next=s.tiles[0].nextRaidAt;for(let i=0;i<20;i++){E.setFlag(s,0);E.setFlag(s,0);}assert.equal(s.tiles[0].nextRaidAt,next);
+  advance(s,.4);assert.equal(s.raids.spawned,2);
+});
+test('False flags spawn real normal enemies, removal stops future waves, clues remain fixed',()=>{
+  const s=raidFixture(),clues=s.tiles.map(t=>t.clue);E.setFlag(s,0);advance(s,90.1);
+  assert.equal(s.raids.spawned,1);assert.equal(s.enemies[0].maxHp,48);assert.equal(s.enemies[0].attack,7);
+  const first=s.enemies[0];E.setFlag(s,0);advance(s,60);assert.equal(s.raids.spawned,1);assert(s.enemies.includes(first));
+  assert.deepEqual(s.tiles.map(t=>t.clue),clues);
+  E.setFlag(s,0);E.reveal(s,0,{assault:true});advance(s,60);assert.equal(s.raids.spawned,1);assert(s.tiles[0].revealed);
+});
+test('Raid schedules freeze during pause, reward selection and results; speed does not double-apply',()=>{
+  const s=raidFixture();s.tiles[0].danger=1;s.time=89.95;s.speed=0;const due=s.tiles[0].nextRaidAt;
+  advance(s,10);assert.equal(s.time,89.95);assert.equal(s.enemies.length,0);assert.equal(s.tiles[0].nextRaidAt,due);
+  s.speed=4;const reward=chest(s,1);advance(s,10);assert.equal(s.time,89.95);assert.equal(s.enemies.length,0);
+  E.chooseUpgrade(s,reward,'farm');E.tick(s,.05);assert.equal(s.enemies.length,1);assert.equal(s.time,90);
+  s.result='defeat';const time=s.time;advance(s,70);assert.equal(s.time,time);assert.equal(s.raids.spawned,1);assert(!E.setFlag(s,0));
+});
+test('Unflagged excavation has 2x HP/attack, same enemy count; flag alone is not an assault order',()=>{
+  for(const flagged of [false,true]){
+    const s=raidFixture();s.tiles[0].danger=1;if(flagged)E.setFlag(s,0);E.reveal(s,0);
+    assert.equal(s.enemies.length,3);assert(s.enemies.every(e=>e.empowered&&e.maxHp===96&&e.hp===96&&e.attack===14));assert.equal(s.raids.ambushes,1);
+    E.reveal(s,0);assert.equal(s.enemies.length,3);
+  }
+  const planned=raidFixture();planned.tiles[0].danger=1;E.setFlag(planned,0);E.reveal(planned,0,{assault:true});
+  assert.equal(planned.enemies.length,3);assert(planned.enemies.every(e=>!e.empowered&&e.maxHp===48&&e.attack===7));assert.equal(planned.raids.ambushes,0);
+});
+test('Worker assault retains flag until completion; removing flag makes the actual opening an ambush',()=>{
+  for(const remove of [false,true]){
+    const s=E.create(71),id=E.index(8,10);s.tiles[id].danger=1;s.tiles[id].terrain='grass';
+    assert(!E.queueAssault(s,id));E.setFlag(s,id);assert(!E.queueExplore(s,id));assert(E.queueAssault(s,id));assert(!E.queueAssault(s,id));
+    advance(s,.5);assert(s.tiles[id].flag);assert(!s.tiles[id].revealed);if(remove)E.setFlag(s,id);
+    advance(s,10);assert(s.tiles[id].revealed);assert(!s.tiles[id].flag);assert.equal(s.raids.ambushes,remove?1:0);
+    assert(s.enemies.every(e=>e.maxHp===(remove?96:48)));
+  }
+});
+test('Flag placement cancels ordinary excavation, frees Worker and does not expose correctness',()=>{
+  for(const danger of [0,1]){
+    const s=E.create(72),id=E.index(8,10);s.tiles[id].danger=danger;E.queueExplore(s,id);advance(s,.5);assert(s.tasks[0].workerId);
+    const due=s.tiles[id].nextRaidAt,eventCount=s.events.length;assert(E.setFlag(s,id));assert.equal(s.tasks.length,0);assert(s.units.every(u=>u.task===null));
+    assert.equal(s.tiles[id].nextRaidAt,due);assert.equal(s.events.length,eventCount);assert.equal(s.enemies.length,0);
+    assert(!E.setFlag(s,s.keepId));assert(!E.setFlag(s,-1));
+  }
+});
 console.log(`${checks} scenarios passed.`);
