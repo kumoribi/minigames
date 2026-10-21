@@ -73,9 +73,14 @@
     if ($('help').open || $('confirm').open) return;
     if ($('upgrade-choices').dataset.rewardId!==String(reward.id)) {
       $('upgrade-choices').dataset.rewardId=reward.id;
-      $('upgrade-choices').replaceChildren(...Object.entries(E.UPGRADES).map(([kind,spec])=>{
+      $('upgrade-choices').replaceChildren(...E.rewardOptions(world).map(kind=>{
+        const spec=E.UPGRADES[kind];
         const b=document.createElement('button');b.type='button';b.dataset.upgrade=kind;b.dataset.rewardId=reward.id;
-        const title=document.createElement('strong'),detail=document.createElement('span'),icon=document.createElement('img');icon.src=`assets/${kind==='soldier'?'soldier':kind}.png`;icon.alt='';title.textContent=spec.name;
+        const title=document.createElement('strong'),detail=document.createElement('span'),icon=document.createElement('img');icon.src=`assets/${kind==='outpost'?'tower':kind}.png`;icon.alt='';title.textContent=spec.name;
+        if(kind==='outpost'){
+          detail.textContent='【建築支援・王国で1回限り】次の監視塔1棟：WOOD 60・GOLD 15 → 0。選択後は停止して配置を計画できます。開拓済み空き平地・敵から1.5マス以上・Worker建築8秒は必要。取消時は支援が戻り、資源は増えません。';
+          b.append(icon,title,detail);return b;
+        }
         const base={farm:1.6,soldier:16,tower:3}[kind],current=base*(1+world.upgrades[kind]*spec.step),next=current+base*spec.step;
         const count=kind==='soldier'?world.units.filter(u=>u.kind==='soldier').length:world.tiles.filter(t=>t.building?.kind===kind).length;
         detail.textContent=`${spec.description} ｜ 基本${kind==='farm'?'生産':kind==='soldier'?'攻撃':'射程'} ${current.toFixed(2)} → ${next.toFixed(2)}${kind==='farm'?'/秒':kind==='tower'?'マス':''} ｜ 現在${count}${kind==='soldier'?'体':'棟'}（今後も有効）${kind==='farm'?'・風車分はさらに×1.25':kind==='soldier'?'・鍛冶兵はさらに×1.2':''}`;b.append(icon,title,detail);return b;
@@ -86,8 +91,13 @@
   $('treasure').addEventListener('cancel',e=>e.preventDefault());
   $('upgrade-choices').addEventListener('click',e=>{
     const b=e.target.closest('[data-upgrade]');if(!b)return;
-    if(E.chooseUpgrade(world,Number(b.dataset.rewardId),b.dataset.upgrade)){sound(true);render();notice('王国強化を取得しました。');}
+    const reward=world.pendingRewards[0];
+    if(E.chooseUpgrade(world,Number(b.dataset.rewardId),b.dataset.upgrade)){
+      if(b.dataset.upgrade==='outpost'){world.speed=0;selected=reward.tileId;setMode('build','tower');sheet(null);center(selected);}
+      sound(true);render();notice(b.dataset.upgrade==='outpost'?'設営支援を獲得。停止中に空き平地へ塔を予約し、1×で建築を開始できます。':'王国強化を取得しました。');
+    }
   });
+  $('use-tower-support').addEventListener('click',()=>{if(world.result||!world.towerSupport.available)return;world.speed=0;setMode('build','tower');sheet(null);render();notice('支援の塔を建てる空き平地を選び、1×で建築を開始してください。');});
   function render() {
     if(surveyWorld!==world){
       surveyWorld=world;
@@ -116,10 +126,15 @@
     const dragon=world.enemies.find(e=>e.kind==='dragon');$('boss').hidden=!dragon;if(dragon){$('boss-hp').textContent=`${Math.ceil(dragon.hp)} / ${dragon.maxHp}`;$('boss-bar').max=dragon.maxHp;$('boss-bar').value=dragon.hp;}
     fitMap();
     document.querySelectorAll('[data-speed]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.speed)===world.speed)));
-    document.querySelectorAll('[data-build]').forEach(b=>b.classList.toggle('unaffordable',!E.canPay(world,E.BUILDINGS[b.dataset.build].cost)));
+    document.querySelectorAll('[data-build]').forEach(b=>b.classList.toggle('unaffordable',!E.canPay(world,E.buildCost(world,b.dataset.build))));
+    document.querySelector('[data-build="tower"] small').textContent=world.towerSupport.available?'設営支援：資源費用0 / 8秒':costText(E.BUILDINGS.tower.cost);
+    const support=world.towerSupport, reserved=world.tasks.filter(q=>q.supported).length;
+    $('tower-support').textContent=`塔の設営支援：${support.available?'使用可能 1棟':reserved?'建築予約中 1棟':support.built?'設営済み 1棟':support.claimed?'使用済み':'未獲得（塔がないときの宝箱で選択可）'}`;
+    $('use-tower-support').disabled=!support.available||Boolean(world.result);
     const t=world.tiles[selected], b=t.building, task=world.tasks.find(q=>q.tileId===selected);
     $('tile-title').textContent=`${b ? E.BUILDINGS[b.kind].name : t.revealed ? names[t.terrain] : '未探索'} (${t.x+1}, ${t.y+1})`;
     $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 危険メモあり。' : ''}`;
+    if(b?.supported||task?.supported)$('tile-description').textContent+=' ・ 設営支援の塔（資源費用0）';
     const k=buildKind || b?.kind;
     const forged=E.hasNeighbor(world,selected,'blacksmith',false);
     $('building-effects').textContent=({

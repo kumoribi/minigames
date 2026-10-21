@@ -15,16 +15,23 @@
   const UPGRADES = {
     farm: { name: '豊穣の祝福', description: 'すべての農場の生産量 +25%', step: .25 },
     soldier: { name: '勇者の誓い', description: '既存・今後の全兵士の攻撃 +20%', step: .2 },
-    tower: { name: '遠見の眼', description: 'すべての監視塔の射程 +30%', step: .3 }
+    tower: { name: '遠見の眼', description: 'すべての監視塔の射程 +30%', step: .3 },
+    outpost: { name: '前線設営の支援', description: '監視塔1棟のWood60・Gold15を免除。Workerの建築8秒と通常の建築条件は必要', step: 0 }
   };
   function hasNeighbor(s, id, kind, diagonal) { return neighbors(id, diagonal).some(n => s.tiles[n].building?.kind === kind && s.tiles[n].building.hp > 0); }
   function farmRate(s, id) { return 1.6 * (1 + s.upgrades.farm * .25) * (hasNeighbor(s, id, 'windmill', true) ? 1.25 : 1); }
   function towerRange(s) { return 3 * (1 + s.upgrades.tower * .3); }
   function soldierAttack(s, unit) { return unit.attack * (1 + s.upgrades.soldier * .2); }
+  function rewardOptions(s) {
+    const hasTower=s.tiles.some(t=>t.building?.kind==='tower'&&t.building.hp>0);
+    return ['farm','soldier',!hasTower&&!s.towerSupport.claimed?'outpost':'tower'];
+  }
   function chooseUpgrade(s, rewardId, kind) {
-    if (s.result || !UPGRADES[kind] || s.pendingRewards[0]?.id !== rewardId) return false;
-    s.upgrades[kind]++; s.pendingRewards.shift();
-    log(s, `${UPGRADES[kind].name}：${UPGRADES[kind].description}（累計${s.upgrades[kind]}回）`, 'reward'); return true;
+    if (s.result || !rewardOptions(s).includes(kind) || s.pendingRewards[0]?.id !== rewardId) return false;
+    if(kind==='outpost'){s.towerSupport.claimed=1;s.towerSupport.available=1;}
+    else s.upgrades[kind]++;
+    s.pendingRewards.shift();
+    log(s, `${UPGRADES[kind].name}：${UPGRADES[kind].description}（${kind==='outpost'?'この王国で1回限り':`累計${s.upgrades[kind]}回`}）`, 'reward'); return true;
   }
   const index = (x, y) => y * SIZE + x;
   const xy = id => ({ x: id % SIZE, y: Math.floor(id / SIZE) });
@@ -116,6 +123,7 @@
   function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true } = {}) {
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, speed: 1, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
     s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
+    s.towerSupport = { claimed: 0, available: 0, built: 0 };
     s.armyMode = 'pursue'; s.defenseRadius = 3;
     s.stats = { spent: { wood: 0, food: 0, gold: 0 }, trained: { worker: 0, soldier: 0 }, lost: { worker: 0, soldier: 0 } };
     for (let id = 0; id < SIZE * SIZE; id++) {
@@ -173,17 +181,20 @@
     if (s.result || !t?.revealed || t.clue !== 0) return 0;
     return neighbors(id).filter(n => !s.tiles[n].flag && queueExplore(s, n)).length;
   }
+  function buildCost(s, kind) { return kind==='tower'&&s.towerSupport.available>0?{}:BUILDINGS[kind]?.cost; }
   function queueBuild(s, id, kind) {
     const t = s.tiles[id], spec = BUILDINGS[kind];
-    if (s.result || !t || !spec || kind === 'keep' || !t.revealed || t.building || t.terrain !== 'grass' || hasTask(s, id)) return { ok: false, reason: '建築は開拓済みの空き平地で行います。' };
+    if (s.result || !t || !Object.hasOwn(BUILDINGS,kind) || kind === 'keep' || !t.revealed || t.building || t.terrain !== 'grass' || hasTask(s, id)) return { ok: false, reason: '建築は開拓済みの空き平地で行います。' };
     if (s.enemies.some(e => distance(e, t) < 1.5)) return { ok: false, reason: '敵が近くにいるため建築できません。' };
-    if (!canPay(s, spec.cost)) return { ok: false, reason: '建築資源が不足しています。' };
-    pay(s, spec.cost); s.tasks.push({ id: s.nextId++, kind: 'build', tileId: id, building: kind, remaining: spec.time, workerId: null });
-    log(s, `${spec.name}を建築予約。資源を確保しました。`); return { ok: true };
+    const cost=buildCost(s,kind),supported=kind==='tower'&&s.towerSupport.available>0;
+    if (!canPay(s, cost)) return { ok: false, reason: '建築資源が不足しています。' };
+    pay(s, cost);if(supported)s.towerSupport.available--;
+    s.tasks.push({ id: s.nextId++, kind: 'build', tileId: id, building: kind, remaining: spec.time, workerId: null, paidCost:{...cost}, supported });
+    log(s, `${spec.name}を建築予約。${supported?'設営支援を確保（資源費用0）。':'資源を確保しました。'}`); return { ok: true };
   }
   function cancelTask(s, id) {
     const task = s.tasks.find(t => t.tileId === id); if (!task || s.result) return false;
-    if (task.kind === 'build') pay(s, BUILDINGS[task.building].cost, -1);
+    if (task.kind === 'build') { pay(s, task.paidCost || BUILDINGS[task.building].cost, -1);if(task.supported)s.towerSupport.available++; }
     for (const u of s.units) if (u.task === task.id) u.task = null;
     s.tasks = s.tasks.filter(t => t !== task); return true;
   }
@@ -206,7 +217,7 @@
     tile.revealed = true; tile.flag = false;
     if (tile.danger === 3) { s.dragonAwake = true; spawn(s, 'dragon', tile); log(s, 'Dragonが目覚めた！軍を集結して王城を守れ。', 'danger'); }
     else if (tile.danger === 1) { tile.terrain = 'camp'; spawn(s, 'goblin', tile, 3 + id % 3); log(s, 'Goblin Campを開拓。迎撃開始！', 'danger'); }
-    else if (tile.terrain === 'chest') { s.resources.gold += 35; s.resources.wood += 20; s.resources.food += 20; tile.terrain = 'grass'; s.pendingRewards.push({ id: s.nextId++, tileId: id }); log(s, '宝箱発見！資源を獲得。3つの王国強化から1つ選ぼう。', 'reward'); }
+    else if (tile.terrain === 'chest') { s.resources.gold += 35; s.resources.wood += 20; s.resources.food += 20; tile.terrain = 'grass'; s.pendingRewards.push({ id: s.nextId++, tileId: id }); log(s, '宝箱発見！資源を獲得。3つの報酬から1つ選ぼう。', 'reward'); }
     s.effects.push({ kind: 'reveal', x: tile.x, y: tile.y, life: .8 });
   }
   // Four-neighbour paths keep movement inside revealed territory.
@@ -246,7 +257,7 @@
         task.remaining -= dt;
         if (task.remaining <= 0) {
           if (task.kind === 'explore') reveal(s, task.tileId);
-          else { const tile = s.tiles[task.tileId]; tile.building = building(task.building); s.effects.push({ kind: 'build', x: tile.x, y: tile.y, life: .8 }); log(s, `${BUILDINGS[task.building].name}が完成。`); }
+          else { const tile = s.tiles[task.tileId]; tile.building = building(task.building); if(task.supported){tile.building.supported=true;s.towerSupport.built++;} s.effects.push({ kind: 'build', x: tile.x, y: tile.y, life: .8 }); log(s, `${BUILDINGS[task.building].name}が完成。`); }
           s.tasks = s.tasks.filter(t => t !== task); u.task = null;
         }
       }
@@ -305,6 +316,6 @@
     if (s.tiles[s.keepId].building.hp <= 0) { s.result = 'defeat'; log(s, '王城が陥落しました。', 'danger'); }
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
   }
-  const api = { SIZE, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, queueExplore, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade };
+  const api = { SIZE, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, queueExplore, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

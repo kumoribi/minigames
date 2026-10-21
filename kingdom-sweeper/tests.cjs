@@ -93,6 +93,7 @@ test('Treasure: freezes simulation, exact-once selection, queues multiple reward
 });
 test('Upgrade arithmetic: existing soldiers, forged soldiers, farm synergy, reset',()=>{
   const s=E.create(13),id=s.keepId;s.tiles[E.index(9,9)].building=fixtureBuilding('windmill');
+  s.tiles[E.index(12,10)].building=fixtureBuilding('tower');
   const r=chest(s,0);E.chooseUpgrade(s,r,'farm');assert.equal(E.farmRate(s,id),2.5);
   for(let i=0;i<2;i++)E.chooseUpgrade(s,chest(s,1+i),'soldier');
   assert.equal(E.soldierAttack(s,{attack:16}),22.4);assert(Math.abs(E.soldierAttack(s,{attack:19.2})-26.88)<1e-9);
@@ -193,5 +194,47 @@ test('Regional map reproduces from seed, survey exposes areas only, zero expansi
   for(const r of a.regions)assert.deepEqual(Object.keys(r).sort(),['direction','id','kind','radius','x','y']);
   const reachable=zeroReach(a);for(const id of reachable){E.reveal(a,id);while(a.pendingRewards.length)E.chooseUpgrade(a,a.pendingRewards[0].id,'farm');}
   assert.equal(a.enemies.length,0);assert(!a.dragonAwake);assert.equal(a.result,null);
+});
+test('Treasure always offers three contextual choices; support cannot be obtained twice or bypassed',()=>{
+  const s=E.create(60);assert.deepEqual(E.rewardOptions(s),['farm','soldier','outpost']);
+  const reward=chest(s,0),before=JSON.stringify(s);assert(!E.chooseUpgrade(s,reward,'tower'));assert.equal(JSON.stringify(s),before);
+  assert(E.chooseUpgrade(s,reward,'outpost'));assert.deepEqual(s.towerSupport,{claimed:1,available:1,built:0});assert.equal(s.upgrades.tower,0);
+  const next=chest(s,1);assert.deepEqual(E.rewardOptions(s),['farm','soldier','tower']);assert(!E.chooseUpgrade(s,next,'outpost'));assert(!E.chooseUpgrade(s,reward,'outpost'));
+  assert(E.chooseUpgrade(s,next,'tower'));assert(Math.abs(E.towerRange(s)-3.9)<1e-9);
+  const t=E.create(61);t.tiles[t.keepId].building=fixtureBuilding('tower');assert.deepEqual(E.rewardOptions(t),['farm','soldier','tower']);
+});
+test('Support does not bypass terrain, visibility, enemy proximity, duplicates or finite stock',()=>{
+  const s=E.create(62),id=E.index(9,9);E.chooseUpgrade(s,chest(s,0),'outpost');s.resources={food:0,wood:0,gold:0};s.tiles[id].terrain='grass';
+  assert(!E.queueBuild(s,E.index(0,1),'tower').ok);assert(!E.queueBuild(s,s.keepId,'tower').ok);
+  assert(!E.queueBuild(s,E.index(9,10),'tower').ok);s.enemies=[goblin(s,9,9)];assert(!E.queueBuild(s,id,'tower').ok);s.enemies=[];
+  assert.equal(s.towerSupport.available,1);assert(E.queueBuild(s,id,'tower').ok);assert(!E.queueBuild(s,id,'tower').ok);assert.equal(s.towerSupport.available,0);
+  s.tiles[E.index(11,11)].terrain='grass';assert(!E.queueBuild(s,E.index(11,11),'tower').ok);
+  assert.deepEqual(s.resources,{food:0,wood:0,gold:0});assert.deepEqual(s.stats.spent,{food:0,wood:0,gold:0});
+});
+test('Repeated support cancellation refunds only the ticket, not Wood or Gold; paid tasks refund independently',()=>{
+  const s=E.create(63),a=E.index(9,9),b=E.index(11,11);E.chooseUpgrade(s,chest(s,0),'outpost');s.tiles[a].terrain=s.tiles[b].terrain='grass';
+  const money={...s.resources};
+  for(let i=0;i<20;i++){assert(E.queueBuild(s,a,'tower').ok);assert(E.cancelTask(s,a));assert(!E.cancelTask(s,a));assert.deepEqual(s.resources,money);assert.equal(s.towerSupport.available,1);}
+  assert(E.queueBuild(s,a,'tower').ok);assert(E.queueBuild(s,b,'tower').ok);assert.equal(s.stats.spent.wood,60);assert.equal(s.stats.spent.gold,15);
+  assert(E.cancelTask(s,b));assert.deepEqual(s.resources,money);assert.equal(s.towerSupport.available,0);
+  assert(E.cancelTask(s,a));assert.equal(s.towerSupport.available,1);assert.deepEqual(s.stats.spent,{food:0,wood:0,gold:0});
+});
+test('Previously paid tower reservation remains paid when support is acquired later',()=>{
+  const s=E.create(64),id=E.index(9,9);s.tiles[id].terrain='grass';s.resources.gold=20;const before={...s.resources};assert(E.queueBuild(s,id,'tower').ok);
+  E.chooseUpgrade(s,chest(s,0),'outpost');assert(E.cancelTask(s,id));assert.deepEqual(s.resources,{wood:before.wood+20,food:before.food+20,gold:before.gold+35});assert.equal(s.towerSupport.available,1);
+});
+test('Support tower requires Worker construction and unmodified stats; cancellation after progress restores stock',()=>{
+  const s=E.create(65),id=E.index(9,9);E.chooseUpgrade(s,chest(s,0),'outpost');s.tiles[id].terrain='grass';s.speed=0;E.queueBuild(s,id,'tower');advance(s,20);assert(!s.tiles[id].building);
+  s.speed=1;advance(s,3);assert(!s.tiles[id].building);assert(s.tasks[0].remaining<8);E.cancelTask(s,id);assert.equal(s.towerSupport.available,1);
+  E.queueBuild(s,id,'tower');advance(s,12);const tower=s.tiles[id].building;assert.equal(tower.hp,300);assert(tower.supported);assert.equal(s.towerSupport.built,1);assert.equal(s.towerSupport.available,0);
+  assert.equal(E.towerRange(s),3);assert.equal(E.BUILDINGS.tower.time,8);assert.equal(E.BUILDINGS.tower.cost.wood,60);assert.equal(s.stats.spent.wood,0);
+});
+test('Sequential treasure updates contextual choice; pending reward freezes building; new run resets support',()=>{
+  const s=E.create(66),first=chest(s,0),second=chest(s,1),id=E.index(9,9);s.tiles[id].terrain='grass';
+  assert(!E.chooseUpgrade(s,second,'outpost'));assert(E.chooseUpgrade(s,first,'outpost'));assert(!E.chooseUpgrade(s,second,'outpost'));
+  E.queueBuild(s,id,'tower');const time=s.time,remaining=s.tasks[0].remaining;advance(s,10);assert.equal(s.time,time);assert.equal(s.tasks[0].remaining,remaining);
+  assert(E.chooseUpgrade(s,second,'soldier'));advance(s,12);assert(s.tiles[id].building);
+  const fresh=E.create(66);assert.deepEqual(fresh.towerSupport,{claimed:0,available:0,built:0});assert.deepEqual(E.rewardOptions(fresh),['farm','soldier','outpost']);
+  s.result='victory';assert(!E.chooseUpgrade(s,first,'outpost'));assert(!E.cancelTask(s,id));
 });
 console.log(`${checks} scenarios passed.`);
