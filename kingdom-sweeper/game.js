@@ -4,6 +4,7 @@
   const canvas = $('map'), viewport = $('viewport'), CELL = 56;
   if (!window.Phaser || !window.KingdomRenderer) { $('loading').textContent='描画エンジンを読み込めませんでした。再読み込みしてください。'; return; }
   let renderer;
+  let surveyWorld = null;
   const names = { grass: '平地', forest: '森林 / Wood', food: '食料 / Food', mine: '鉱山 / Gold', camp: 'ゴブリン拠点跡', lair: 'Dragonの巣' };
   const assets = {}, assetNames = ['grass','forest','food','mine','camp','lair','chest','keep','farm','house','barracks','tower','windmill','blacksmith','worker','soldier','goblin','dragon'];
   let world = E.create(), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1, previousSpeed = 1;
@@ -88,6 +89,17 @@
     if(E.chooseUpgrade(world,Number(b.dataset.rewardId),b.dataset.upgrade)){sound(true);render();notice('王国強化を取得しました。');}
   });
   function render() {
+    if(surveyWorld!==world){
+      surveyWorld=world;
+      const titles={forest:'森林地帯 / Wood',food:'食料地帯 / Food',mine:'鉱山地帯 / Gold'};
+      $('survey-regions').replaceChildren(...world.regions.map(r=>{
+        const b=document.createElement('button');b.type='button';b.dataset.region=r.id;
+        const title=document.createElement('strong'),detail=document.createElement('span');
+        title.textContent=`${r.direction}：${titles[r.kind]}`;
+        detail.textContent=`横${r.x}〜${r.x+2}・縦${r.y}〜${r.y+2}の区画`;
+        b.append(title,detail);b.addEventListener('click',()=>{if(world.result)return;selected=E.index(r.x,r.y);setMode('select');sheet(null);center(selected);render();notice('紫枠は資源地帯の調査情報です。敵位置は数字から推理してください。');});return b;
+      }));
+    }
     for(const k of ['food','wood','gold']) $(k).textContent=Math.floor(world.resources[k]);
     const pop=E.population(world);$('population').textContent=`${pop.used} / ${pop.cap}`;
     const keep=world.tiles[world.keepId].building;$('keep-hp').textContent=`${Math.max(0,Math.ceil(keep.hp))} / ${keep.maxHp}`;$('keep-bar').style.width=`${Math.max(0,keep.hp/keep.maxHp)*100}%`;

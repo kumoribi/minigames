@@ -50,7 +50,70 @@
     s.units.push(unit); return unit;
   }
   function building(kind) { return { kind, hp: BUILDINGS[kind].hp, maxHp: BUILDINGS[kind].hp, train: [], cooldown: 0 }; }
-  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0) {
+  // Rearrange existing contents: no additional camps, treasure, or resource stock.
+  function planRegions(s) {
+    const random = rng(s.seed ^ 0x51ED270B);
+    const shuffle = list => { for(let i=list.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[list[i],list[j]]=[list[j],list[i]];}return list; };
+    const directions = [{x:0,y:-1,name:'北'},{x:1,y:0,name:'東'},{x:0,y:1,name:'南'},{x:-1,y:0,name:'西'}];
+    const configurations=[];
+    for(let omit=0;omit<4;omit++)for(const side of [-1,1])for(let mask=0;mask<8;mask++)configurations.push({omit,side,mask});
+    let plan;
+    for(const config of shuffle(configurations)) {
+      const regions=directions.filter((_,i)=>i!==config.omit).map((dir,i)=>{
+        const r=6+((config.mask>>i)&1),p={x:-dir.y*config.side,y:dir.x*config.side};
+        const at=(d,v=0)=>index(10+dir.x*d+p.x*v,10+dir.y*d+p.y*v);
+        const route=[s.keepId];
+        for(const goal of [at(2),at(2,4),at(r,4),at(r,1)]) {
+          let pos=xy(route.at(-1)),end=xy(goal);
+          while(pos.x!==end.x||pos.y!==end.y){pos={x:pos.x+Math.sign(end.x-pos.x),y:pos.y+(pos.x===end.x?Math.sign(end.y-pos.y):0)};route.push(index(pos.x,pos.y));}
+        }
+        const candidates=[];
+        for(let d=3;d<=r-2;d++)for(let v=-1;v<=1;v++)candidates.push(at(d,v));
+        return {dir,r,center:at(r),route,candidates};
+      });
+      const protectedTiles=new Set(regions.flatMap(r=>r.route.flatMap(id=>[id,...neighbors(id)])));
+      if(protectedTiles.has(s.dragonId)||regions.some(r=>!r.candidates.some(id=>!protectedTiles.has(id))))continue;
+      plan={regions,protectedTiles};break;
+    }
+    if(!plan) return; // Defensive fallback retains the valid scattered map.
+    const initial=id=>{const t=s.tiles[id];return Math.max(Math.abs(t.x-10),Math.abs(t.y-10))<=2;};
+    const swapContents=(a,b)=>{for(const key of ['terrain','amount'])[a[key],b[key]]=[b[key],a[key]];};
+    const moveCamp=(from,to)=>{swapContents(from,to);from.danger=0;to.danger=1;};
+    for(const from of s.tiles.filter(t=>t.danger===1&&plan.protectedTiles.has(t.id))) {
+      const choices=s.tiles.filter(t=>!initial(t.id)&&!plan.protectedTiles.has(t.id)&&t.danger===0&&t.id%3===from.id%3);
+      const to=choices[Math.floor(random()*choices.length)];
+      if(!to) throw new Error('No camp relocation slot');
+      moveCamp(from,to);
+    }
+    const committed=new Set();
+    for(const r of plan.regions) {
+      for(const id of shuffle(r.candidates.filter(id=>!plan.protectedTiles.has(id)))) {
+        const to=s.tiles[id];if(to.danger===3)continue;
+        if(to.danger!==1) {
+          const choices=s.tiles.filter(t=>t.danger===1&&!committed.has(t.id)&&t.id%3===id%3);
+          if(!choices.length)continue;
+          moveCamp(choices[Math.floor(random()*choices.length)],to);
+        }
+        committed.add(id);break;
+      }
+    }
+    const kinds=shuffle(['forest','food','mine']);
+    for(const [i,r] of plan.regions.entries()) {
+      const center=s.tiles[r.center],kind=kinds[i];
+      const cells=[r.center,...neighbors(r.center)];
+      const targets=shuffle(cells.filter(id=>s.tiles[id].danger===0));
+      let count=cells.filter(id=>s.tiles[id].danger===0&&s.tiles[id].terrain===kind).length;
+      for(const id of targets) {
+        if(count>=4)break;
+        const to=s.tiles[id];if(to.terrain===kind)continue;
+        const choices=s.tiles.filter(t=>t.danger===0&&!initial(t.id)&&!cells.includes(t.id)&&t.terrain===kind);
+        if(!choices.length)break;
+        swapContents(choices[Math.floor(random()*choices.length)],to);count++;
+      }
+      if(count>=4)s.regions.push({id:i,kind,direction:r.dir.name,x:center.x,y:center.y,radius:1});
+    }
+  }
+  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true } = {}) {
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, speed: 1, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
     s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
     s.armyMode = 'pursue'; s.defenseRadius = 3;
@@ -67,6 +130,9 @@
     const keep = s.tiles[s.keepId]; keep.terrain = 'grass'; keep.building = building('keep');
     // Already-visible starting cells are not opened by exploration, so contain no unopened chests.
     for (const t of s.tiles) if (t.revealed && t.terrain === 'chest') t.terrain = 'grass';
+    s.regions=[];s.mapVersion=structured?2:1;
+    if(structured)planRegions(s);
+    for(const tile of s.tiles)tile.clue=neighbors(tile.id).reduce((sum,id)=>sum+s.tiles[id].danger,0);
     for (let i = 0; i < 3; i++) addUnit(s, 'worker', s.keepId);
     log(s, '王城を守り、数字から敵を推測。まず農場と兵舎を建てよう。');
     return s;

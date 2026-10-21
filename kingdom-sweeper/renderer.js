@@ -173,6 +173,9 @@
     }
     drawOrders(world, { selected, buildKind }) {
       const g = this.overlay.clear(), focus = world.tiles[selected], kind = buildKind || focus.building?.kind;
+      for(const region of world.regions){
+        g.lineStyle(2,0xcba4ff,.8).strokeRect((region.x-1)*CELL+2,(region.y-1)*CELL+2,CELL*3-4,CELL*3-4);
+      }
       if(world.armyMode==='defend'){
         const rally=world.tiles[world.rally];
         g.lineStyle(2,0x94e3c1,.8).strokeCircle((rally.x+.5)*CELL,(rally.y+.5)*CELL,world.defenseRadius*CELL);

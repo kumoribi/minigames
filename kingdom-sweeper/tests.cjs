@@ -158,4 +158,40 @@ test('Spending accounts for refunds and queued training; losses counted once; re
   advance(s,6);assert.equal(s.stats.trained.worker,1);s.units[0].hp=0;advance(s,1);assert.equal(s.stats.lost.worker,1);advance(s,1);assert.equal(s.stats.lost.worker,1);
   s.result='victory';assert(!E.setArmyMode(s,'defend'));assert.equal(E.queueSafeNeighbors(s,E.index(9,10)),0);
 });
+function zeroReach(s) {
+  const seen=new Set([s.keepId]),queue=[s.keepId];
+  for(let i=0;i<queue.length;i++)if(s.tiles[queue[i]].clue===0)for(const id of E.neighbors(queue[i]))if(!seen.has(id)){seen.add(id);queue.push(id);}
+  return seen;
+}
+test('500 seeds: regional generator conserves camps, troop count, resources, chests, boss and safe start',()=>{
+  const inventory=s=>s.tiles.map(t=>`${t.danger===0?'usable':'occupied'}:${t.terrain}:${t.amount}`).sort();
+  const variants=new Set();
+  for(let seed=0;seed<500;seed++) {
+    const s=E.create(seed),before=E.create(seed,{structured:false});
+    assert.equal(s.regions.length,3);assert.equal(s.dragonId,before.dragonId);
+    assert.equal(s.tiles.filter(t=>t.danger===1).length,before.tiles.filter(t=>t.danger===1).length);
+    assert.equal(s.tiles.filter(t=>t.danger===1).reduce((n,t)=>n+3+t.id%3,0),before.tiles.filter(t=>t.danger===1).reduce((n,t)=>n+3+t.id%3,0));
+    assert.deepEqual(inventory(s),inventory(before));
+    for(const t of s.tiles) {
+      assert.equal(t.clue,E.neighbors(t.id).reduce((n,id)=>n+s.tiles[id].danger,0));
+      if(Math.max(Math.abs(t.x-10),Math.abs(t.y-10))<=2)for(const key of ['terrain','amount','danger','revealed'])assert.equal(t[key],before.tiles[t.id][key]);
+    }
+    const reachable=zeroReach(s);assert([...reachable].every(id=>s.tiles[id].danger===0));
+    for(const r of s.regions){
+      const cells=s.tiles.filter(t=>Math.abs(t.x-r.x)<=1&&Math.abs(t.y-r.y)<=1);
+      assert(cells.filter(t=>t.danger===0&&t.terrain===r.kind).length>=4);assert(cells.some(t=>reachable.has(t.id)&&t.terrain===r.kind));
+      const dx=Math.sign(r.x-10),dy=Math.sign(r.y-10),radius=Math.abs(r.x-10)+Math.abs(r.y-10);
+      const gates=[];for(let d=3;d<=radius-2;d++)for(let v=-1;v<=1;v++)gates.push(s.tiles[E.index(10+dx*d-dy*v,10+dy*d+dx*v)]);
+      assert(gates.some(t=>t.danger===1),'A short approach has a camp');
+    }
+    variants.add(s.regions.map(r=>`${r.kind}:${r.x},${r.y}`).join('|'));
+  }
+  assert(variants.size>100);
+});
+test('Regional map reproduces from seed, survey exposes areas only, zero expansion does not wake enemies',()=>{
+  const a=E.create(42),b=E.create(42);assert.deepEqual(a.tiles,b.tiles);assert.deepEqual(a.regions,b.regions);
+  for(const r of a.regions)assert.deepEqual(Object.keys(r).sort(),['direction','id','kind','radius','x','y']);
+  const reachable=zeroReach(a);for(const id of reachable){E.reveal(a,id);while(a.pendingRewards.length)E.chooseUpgrade(a,a.pendingRewards[0].id,'farm');}
+  assert.equal(a.enemies.length,0);assert(!a.dragonAwake);assert.equal(a.result,null);
+});
 console.log(`${checks} scenarios passed.`);

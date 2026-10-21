@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
@@ -32,6 +32,7 @@
     <div class="map-controls"><button id="zoom-out" aria-label="地図を縮小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="地図を拡大">＋</button><button id="center" title="王城へ移動" aria-label="王城へ移動">⌂ 王城</button></div>
   </section>
   <section class="guide" aria-label="次の目標"><div><small id="guide-step"></small><strong id="guide-title"></strong><p id="guide-text"></p></div><button id="guide-toggle" aria-expanded="true">案内を隠す</button></section>
+  <details class="survey" open><summary>探索先の候補：資源地帯</summary><p>紫枠は3×3区画のおおよその資源情報です。敵の位置や安全性は保証しません。数字を読み、短い接近路を攻めるか、0の続く別経路を探すか選びましょう。候補を押すと地図へ移動します（開拓予約はしません）。</p><div id="survey-regions"></div></details>
   <div class="workspace">
     <section class="map-panel" aria-label="王国の地図">
       <div class="map-heading"><span><i class="live-dot"></i> <b id="status">開拓を開始しよう</b></span><small id="territory">領土 9 / 400</small></div>
@@ -103,6 +104,8 @@
     <p>数字0の開拓済みマスには「周囲の安全マスをまとめて予約」が表示されます。旗付きマスは除外し、各マスの開拓時間は従来どおり。数字0は初期配置の安全情報で、移動中の敵からの安全は保証しません。</p>
     <p>結果にWorker・兵士の損失、育成完了数、返金を差し引いた支出を表示。同じ王国へ再挑戦して配置・攻略順を比較できます。記録は保存されず、時間による減点はありません。</p>
     <h3>まずは、この順番で遊ぼう</h3>
+    <p>「探索先の候補」に森林・食料・鉱山の地帯を表示します。各地帯には同種の資源が4マス以上まとまっています。紫枠は公開された調査情報で、枠内が全部安全という意味ではありません。軍備を使って短い接近路の拠点を攻略するか、数字0をたどれる長めの経路を探して資源を確保するかを選べます。ほかの経路も選べ、軍備完成まで待つこともできます。</p>
+    <p>数字0からの安全推理で資源地帯へ進める経路を生成しますが、すべてのマス・Dragon位置が推理だけで確定する保証ではありません。未開拓の内容・安全経路・敵位置は表示しません。生成方式v2から同じ王国番号の配置が旧版と変わります。この版の中での再挑戦は同一配置です。</p>
     <ol class="help-steps">
       <li><b>停止状態で落ち着いて計画する</b><p>ゲーム開始時と新しい王国は、必ず停止状態から始まります。停止中でも建築・開拓・育成を予約できます。準備ができたら「1×」を押してください。</p></li>
       <li><b>農場と兵舎を建てる</b><p>「建築計画」の「農場」を選び、地図の<b>開拓済みで何もない草地</b>をタップ。同様に「兵舎」を別の草地に予約します。最初の費用は合計WOOD 80・FOOD 20。「1×」で進めるとWorker（作業員）が建築します。空き草地がなければ、外側を少し開拓するか資源を採集し切りましょう。</p><p>スマホでは画面下の「建築」で建物を選び、地図をタップ。「軍備」で兵舎（未建設なら王城）の育成操作を開けます。</p></li>
@@ -132,6 +135,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>強化を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>同じ強化は加算で累積。この王国だけで有効。</small></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=6"></script><script src="renderer.js?v=2"></script><script src="game.js?v=8"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=7"></script><script src="renderer.js?v=3"></script><script src="game.js?v=9"></script>
 </body>
 </html>
