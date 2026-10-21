@@ -173,6 +173,10 @@
     }
     drawOrders(world, { selected, buildKind }) {
       const g = this.overlay.clear(), focus = world.tiles[selected], kind = buildKind || focus.building?.kind;
+      if(world.armyMode==='defend'){
+        const rally=world.tiles[world.rally];
+        g.lineStyle(2,0x94e3c1,.8).strokeCircle((rally.x+.5)*CELL,(rally.y+.5)*CELL,world.defenseRadius*CELL);
+      }
       if (['farm', 'windmill', 'barracks', 'blacksmith'].includes(kind)) {
         const diagonal = kind === 'farm' || kind === 'windmill', color = diagonal ? 0xeecb58 : 0x81caff;
         for (const id of E.neighbors(selected, diagonal)) {

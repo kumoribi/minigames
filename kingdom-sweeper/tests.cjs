@@ -108,4 +108,54 @@ test('Tower upgraded range affects combat, Soldier upgrade affects existing comb
   E.chooseUpgrade(s,chest(s,1),'soldier');const hp=enemy.hp;advance(s,.05);assert(Math.abs(hp-enemy.hp-19.2)<1e-9);
   const soldierHit=s.effects.find(e=>e.sourceId===u.id);assert.equal(soldierHit.targetId,enemy.id);assert.equal(soldierHit.fromX,u.x);
 });
+const soldier = (s,x=10,y=10) => ({id:s.nextId++,kind:'soldier',x,y,hp:110,maxHp:110,attack:16,cooldown:0});
+const goblin = (s,x,y) => ({id:s.nextId++,kind:'goblin',x,y,hp:48,maxHp:48,attack:7,cooldown:1.5});
+test('Defense holds rally against distant enemies; pursue retains previous behavior',()=>{
+  const s=E.create(30);s.tiles.forEach(t=>t.revealed=true);s.units=[soldier(s)];s.enemies=[goblin(s,17,10)];
+  assert(E.setArmyMode(s,'defend'));advance(s,1);assert.equal(s.units[0].x,10);
+  assert(!E.setArmyMode(s,'invalid'));assert.equal(s.armyMode,'defend');
+  E.setArmyMode(s,'pursue');advance(s,1);assert(s.units[0].x>10);
+});
+test('Defense engages inside radius, returns after combat, and permits close self-defense',()=>{
+  const s=E.create(31);s.tiles.forEach(t=>t.revealed=true);const u=soldier(s);s.units=[u];s.enemies=[goblin(s,12,10)];E.setArmyMode(s,'defend');
+  advance(s,4);assert.equal(s.enemies.length,0);advance(s,3);assert(Math.hypot(u.x-10,u.y-10)<.15);
+  u.x=17;const e=goblin(s,17,10);s.enemies=[e];advance(s,.1);assert.equal(e.hp,32);
+  s.enemies=[];advance(s,5);assert(Math.hypot(u.x-10,u.y-10)<.15);
+});
+test('Prepared exploration waits without holding Workers; gathers and resumes when assembled',()=>{
+  const s=E.create(32),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');s.speed=0;
+  assert(E.queuePreparedExplore(s,id,1));assert(!E.queuePreparedExplore(s,id,1));
+  advance(s,2);assert.equal(s.time,0);s.speed=1;advance(s,2);
+  assert(!s.tiles[id].revealed);assert(s.resources.gold>0);assert.equal(s.tasks[0].workerId,null);
+  s.units.push(soldier(s));advance(s,8);assert(s.tiles[id].revealed);assert(!s.tiles[id].flag);
+});
+test('Preparation validates visible plan only, count, range, mode, cancellation and reset',()=>{
+  const s=E.create(33),id=E.index(8,10);s.tiles[id].flag=true;
+  assert(!E.queuePreparedExplore(s,id,1));E.setArmyMode(s,'defend');
+  for(const n of [0,-1,1.5,11,NaN])assert(!E.queuePreparedExplore(s,id,n));
+  const far=E.index(0,0);s.tiles[far].flag=true;assert(!E.queuePreparedExplore(s,far,1));
+  assert(E.queuePreparedExplore(s,id,2));const q=s.tasks[0];
+  s.units.push(soldier(s),soldier(s));assert.equal(E.preparationStatus(s,q),'');
+  s.units.at(-1).hp=0;assert(E.preparationStatus(s,q));s.units.at(-1).hp=110;
+  s.rally=E.index(11,11);assert(E.preparationStatus(s,q));assert(E.cancelTask(s,id));assert.equal(s.tasks.length,0);
+  const fresh=E.create(33);assert.equal(fresh.armyMode,'pursue');assert.deepEqual(fresh.stats.lost,{worker:0,soldier:0});
+});
+test('Lost readiness interrupts assigned work, frees Worker, preserves remaining progress',()=>{
+  const s=E.create(34),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');s.units.push(soldier(s));E.queuePreparedExplore(s,id,1);
+  advance(s,.5);const q=s.tasks[0];assert(q.workerId);const remaining=q.remaining;
+  E.setArmyMode(s,'pursue');advance(s,.2);assert.equal(q.workerId,null);assert.equal(q.remaining,remaining);assert(!s.tiles[id].revealed);
+  E.setArmyMode(s,'defend');advance(s,8);assert(s.tiles[id].revealed);
+});
+test('Safe batch uses revealed zero clues, ignores flags and never duplicates reservations',()=>{
+  const s=E.create(35),id=E.index(9,10),blocked=E.index(8,10);s.tiles[blocked].flag=true;
+  assert.equal(E.queueSafeNeighbors(s,id),2);assert.equal(E.queueSafeNeighbors(s,id),0);
+  assert(!s.tasks.some(q=>q.tileId===blocked));assert.equal(E.queueSafeNeighbors(s,blocked),0);
+  s.tiles[id].clue=1;assert.equal(E.queueSafeNeighbors(s,id),0);
+});
+test('Spending accounts for refunds and queued training; losses counted once; result locks commands',()=>{
+  const s=E.create(36),id=E.index(9,9);s.tiles[id].terrain='grass';E.queueBuild(s,id,'farm');assert.equal(s.stats.spent.wood,30);
+  E.cancelTask(s,id);assert.equal(s.stats.spent.wood,0);assert(E.train(s,s.keepId,'worker').ok);assert.equal(s.stats.spent.food,25);
+  advance(s,6);assert.equal(s.stats.trained.worker,1);s.units[0].hp=0;advance(s,1);assert.equal(s.stats.lost.worker,1);advance(s,1);assert.equal(s.stats.lost.worker,1);
+  s.result='victory';assert(!E.setArmyMode(s,'defend'));assert.equal(E.queueSafeNeighbors(s,E.index(9,10)),0);
+});
 console.log(`${checks} scenarios passed.`);

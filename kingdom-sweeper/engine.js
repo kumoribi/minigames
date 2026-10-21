@@ -53,6 +53,8 @@
   function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0) {
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, speed: 1, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
     s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
+    s.armyMode = 'pursue'; s.defenseRadius = 3;
+    s.stats = { spent: { wood: 0, food: 0, gold: 0 }, trained: { worker: 0, soldier: 0 }, lost: { worker: 0, soldier: 0 } };
     for (let id = 0; id < SIZE * SIZE; id++) {
       const p = xy(id), safe = Math.max(Math.abs(p.x - 10), Math.abs(p.y - 10)) <= 2, r = random();
       const terrain = r < .2 ? 'forest' : r < .29 ? 'food' : r < .37 ? 'mine' : r < .41 ? 'chest' : 'grass';
@@ -70,7 +72,7 @@
     return s;
   }
   function canPay(s, cost) { return Object.entries(cost).every(([k, n]) => s.resources[k] >= n); }
-  function pay(s, cost, multiplier = 1) { for (const [k, n] of Object.entries(cost)) s.resources[k] -= n * multiplier; }
+  function pay(s, cost, multiplier = 1) { for (const [k, n] of Object.entries(cost)) { s.resources[k] -= n * multiplier; s.stats.spent[k] += n * multiplier; } }
   function population(s) {
     const queued = s.tiles.reduce((n, t) => n + (t.building?.train.length || 0), 0);
     return { used: s.units.filter(u => u.hp > 0).length + queued, cap: 10 + s.tiles.filter(t => t.building?.kind === 'house').length * 5 };
@@ -81,6 +83,29 @@
     const t = s.tiles[id]; if (s.result || !t || t.revealed || hasTask(s, id)) return false;
     // Deep reservations wait until an adjacent tile becomes part of the territory.
     s.tasks.push({ id: s.nextId++, kind: 'explore', tileId: id, remaining: 3, workerId: null }); return true;
+  }
+  function setArmyMode(s, mode) {
+    if (s.result || !['pursue', 'defend'].includes(mode)) return false;
+    s.armyMode = mode; return true;
+  }
+  function preparationStatus(s, task) {
+    if (!task.preparation) return '';
+    const p = task.preparation;
+    if (s.armyMode !== 'defend' || s.rally !== p.rally) return '予約時の集合地点で防衛にしてください';
+    const soldiers = s.units.filter(u => u.kind === 'soldier' && u.hp > 0 && distance(u, s.tiles[p.rally]) <= 1);
+    if (soldiers.length < p.count) return `集結待ち ${soldiers.length}/${p.count}体`;
+    return '';
+  }
+  function queuePreparedExplore(s, id, count) {
+    const t = s.tiles[id], rally = s.tiles[s.rally];
+    if (!t || !t.flag || t.revealed || !Number.isInteger(count) || count < 1 || count > 10 ||
+        s.armyMode !== 'defend' || !rally?.revealed || distance(t, rally) > s.defenseRadius || !queueExplore(s, id)) return false;
+    s.tasks.at(-1).preparation = { rally: s.rally, count }; return true;
+  }
+  function queueSafeNeighbors(s, id) {
+    const t = s.tiles[id];
+    if (s.result || !t?.revealed || t.clue !== 0) return 0;
+    return neighbors(id).filter(n => !s.tiles[n].flag && queueExplore(s, n)).length;
   }
   function queueBuild(s, id, kind) {
     const t = s.tiles[id], spec = BUILDINGS[kind];
@@ -144,9 +169,10 @@
     const threat = nearest(s.enemies.filter(e => e.hp > 0), u);
     if (threat && distance(threat, u) < 2.2) { move(s, u, [s.keepId], 1.8, dt); return; }
     let task = s.tasks.find(t => t.id === u.task);
+    if (task && preparationStatus(s, task)) { task.workerId = null; u.task = null; task = null; }
     if (!task) {
       u.task = null;
-      task = s.tasks.find(t => !t.workerId && taskGoals(s, t).length && path(s, u, taskGoals(s, t)) !== null);
+      task = s.tasks.find(t => !t.workerId && !preparationStatus(s, t) && taskGoals(s, t).length && path(s, u, taskGoals(s, t)) !== null);
       if (task) { task.workerId = u.id; u.task = task.id; }
     }
     if (task) {
@@ -174,8 +200,10 @@
   }
   function hit(s, target, damage, source) { target.hp -= damage; s.effects.push({ kind: 'hit', source: source.kind || source.building?.kind, sourceId: source.id, targetId: target.id, damage, x: target.x, y: target.y, fromX: source.x, fromY: source.y, life: .3 }); }
   function updateSoldier(s, u, dt) {
-    const enemy = nearest(s.enemies.filter(e => e.hp > 0), u);
+    const rally = s.tiles[s.rally], defending = s.armyMode === 'defend';
+    const enemy = nearest(s.enemies.filter(e => e.hp > 0 && (!defending || distance(e, rally) <= s.defenseRadius || distance(e, u) <= .95)), u);
     u.cooldown = Math.max(0, u.cooldown - dt);
+    if (defending && distance(u, rally) > s.defenseRadius && (!enemy || distance(u, enemy) > .95)) { move(s, u, [s.rally], 2.1, dt); return; }
     if (enemy) {
       if (distance(u, enemy) <= .95) { if (!u.cooldown) { hit(s, enemy, soldierAttack(s, u), u); u.cooldown = .8; } }
       else { const id = index(Math.round(enemy.x), Math.round(enemy.y)); if (s.tiles[id]?.revealed) move(s, u, [id], 2.1, dt); }
@@ -189,7 +217,7 @@
     for (const t of s.tiles) if (t.building && t.building.hp > 0) {
       const b = t.building;
       if (b.kind === 'farm') s.resources.food += farmRate(s, t.id) * dt;
-      if (b.train.length) { b.train[0].remaining -= dt; if (b.train[0].remaining <= 0) { const unit = addUnit(s, b.train.shift().kind, t.id); log(s, `${unit.kind === 'soldier' ? 'Soldier' : 'Worker'}が到着。`); } }
+      if (b.train.length) { b.train[0].remaining -= dt; if (b.train[0].remaining <= 0) { const unit = addUnit(s, b.train.shift().kind, t.id); s.stats.trained[unit.kind]++; log(s, `${unit.kind === 'soldier' ? 'Soldier' : 'Worker'}が到着。`); } }
       if (b.kind === 'tower') { b.cooldown = Math.max(0, b.cooldown - dt); const target = nearest(s.enemies.filter(e => e.hp > 0 && distance(e, t) <= towerRange(s)), t); if (target && !b.cooldown) { hit(s, target, 14, t); b.cooldown = 1; } }
     }
     for (const u of s.units) {
@@ -206,11 +234,11 @@
     }
     for (const e of s.enemies.filter(e => e.hp <= 0)) { s.kills++; s.resources.gold += e.kind === 'dragon' ? 150 : 6; if (e.kind === 'dragon') { s.result = 'victory'; log(s, 'Dragon討伐！王国に平和が戻った。', 'reward'); } }
     s.enemies = s.enemies.filter(e => e.hp > 0);
-    for (const u of s.units.filter(u => u.hp <= 0)) { if (u.task) { const task = s.tasks.find(t => t.id === u.task); if (task) task.workerId = null; } }
+    for (const u of s.units.filter(u => u.hp <= 0)) { s.stats.lost[u.kind]++; if (u.task) { const task = s.tasks.find(t => t.id === u.task); if (task) task.workerId = null; } }
     s.units = s.units.filter(u => u.hp > 0);
     if (s.tiles[s.keepId].building.hp <= 0) { s.result = 'defeat'; log(s, '王城が陥落しました。', 'danger'); }
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
   }
-  const api = { SIZE, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, queueExplore, queueBuild, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade };
+  const api = { SIZE, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, queueExplore, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

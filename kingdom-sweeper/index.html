@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
@@ -56,6 +56,7 @@
       <section class="panel tile-detail" data-sheet="detail">
         <p class="eyebrow">SELECTED TILE</p><h2 id="tile-title">王城</h2><p id="tile-description"></p>
         <p id="building-effects" class="effect-info" aria-live="polite"></p>
+        <fieldset><legend>兵士の行動</legend><button id="army-pursue" type="button" aria-pressed="true">自動追撃</button> <button id="army-defend" type="button" aria-pressed="false">集合地点を防衛</button><p id="army-orders"></p><label>準備開拓の必要兵士数 <select id="prepare-count" aria-label="準備開拓の必要兵士数"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select></label></fieldset>
         <div id="tile-actions" class="tile-actions"></div>
       </section>
       <section class="panel" data-sheet="build">
@@ -90,12 +91,17 @@
   </div>
   <div class="run-footer"><span id="seed"></span><button id="restart">↻ 新しい王国</button></div>
 </main>
-<dialog id="result"><div class="result-inner"><p class="eyebrow" id="result-label">KINGDOM</p><h2 id="result-title"></h2><p id="result-summary"></p><button id="again">新しい王国を始める</button><a href="../">ミニゲーム集へ</a></div></dialog>
+<dialog id="result"><div class="result-inner"><p class="eyebrow" id="result-label">KINGDOM</p><h2 id="result-title"></h2><p id="result-summary"></p><p id="result-stats"></p><button id="replay">同じ王国で再挑戦</button><button id="again">新しい王国を始める</button><a href="../">ミニゲーム集へ</a></div></dialog>
 <dialog id="confirm"><div class="result-inner"><h2>新しい王国を始めますか？</h2><p>現在の領土・資源・予約はリセットされます。</p><button id="confirm-restart">新しい王国へ</button><button id="cancel-restart" class="secondary">今の王国を続ける</button></div></dialog>
 <dialog id="help" class="help-dialog" aria-labelledby="help-title">
   <div class="help-heading"><p class="eyebrow">FIRST STEPS</p><h2 id="help-title">王国づくりの進め方</h2><p>ヘルプを開いている間、ゲームは停止します。</p></div>
   <div class="help-body">
     <p class="help-goal"><b>目標：Dragonを討伐する</b><br>王城（Keep）のHPが0になると敗北。敵を避け続けるのではなく、軍備を整えてから敵のマスを開けるゲームです。</p>
+    <h3>推理した敵を、準備した場所で迎え撃つ</h3>
+    <p>開拓済みマスを選んで「兵士の集合地点にする」→「集合地点を防衛」。兵士は集合地点から半径3マス以内の敵を迎撃し、敵がいなくなると戻ります。範囲外は追わず、近接されたときは自衛します。遠方の敵も追うときは「自動追撃」へ切り替えます。</p>
+    <p>敵だと思うマスへ旗を立て、選択情報で必要兵士数を指定して「集結後に開拓予約」。予約時の集合地点から3マス以内に限り、指定人数が集合地点から1マス以内へ集まるまでWorkerは他の仕事をします。作業中に人数・防衛指示を満たさなくなると中断します。集合地点を変えた場合は戻すか予約を取り消してください。旗の正解や勝利を保証する機能ではありません。</p>
+    <p>数字0の開拓済みマスには「周囲の安全マスをまとめて予約」が表示されます。旗付きマスは除外し、各マスの開拓時間は従来どおり。数字0は初期配置の安全情報で、移動中の敵からの安全は保証しません。</p>
+    <p>結果にWorker・兵士の損失、育成完了数、返金を差し引いた支出を表示。同じ王国へ再挑戦して配置・攻略順を比較できます。記録は保存されず、時間による減点はありません。</p>
     <h3>まずは、この順番で遊ぼう</h3>
     <ol class="help-steps">
       <li><b>停止状態で落ち着いて計画する</b><p>ゲーム開始時と新しい王国は、必ず停止状態から始まります。停止中でも建築・開拓・育成を予約できます。準備ができたら「1×」を押してください。</p></li>
@@ -126,6 +132,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>強化を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>同じ強化は加算で累積。この王国だけで有効。</small></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=4"></script><script src="renderer.js?v=1"></script><script src="game.js?v=7"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=5"></script><script src="renderer.js?v=2"></script><script src="game.js?v=8"></script>
 </body>
 </html>
