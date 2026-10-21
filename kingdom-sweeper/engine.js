@@ -166,10 +166,10 @@
   function nearest(list, p) { return list.reduce((best, t) => !best || distance(t, p) < distance(best, p) ? t : best, null); }
   function taskGoals(s, task) { return task.kind === 'explore' ? neighbors(task.tileId, false).filter(id => s.tiles[id].revealed) : [task.tileId]; }
   function updateWorker(s, u, dt) {
-    const threat = nearest(s.enemies.filter(e => e.hp > 0), u);
-    if (threat && distance(threat, u) < 2.2) { move(s, u, [s.keepId], 1.8, dt); return; }
     let task = s.tasks.find(t => t.id === u.task);
     if (task && preparationStatus(s, task)) { task.workerId = null; u.task = null; task = null; }
+    const threat = nearest(s.enemies.filter(e => e.hp > 0), u);
+    if (threat && distance(threat, u) < 2.2) { move(s, u, [s.keepId], 1.8, dt); return; }
     if (!task) {
       u.task = null;
       task = s.tasks.find(t => !t.workerId && !preparationStatus(s, t) && taskGoals(s, t).length && path(s, u, taskGoals(s, t)) !== null);

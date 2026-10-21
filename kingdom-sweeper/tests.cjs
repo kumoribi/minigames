@@ -143,7 +143,7 @@ test('Preparation validates visible plan only, count, range, mode, cancellation 
 test('Lost readiness interrupts assigned work, frees Worker, preserves remaining progress',()=>{
   const s=E.create(34),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');s.units.push(soldier(s));E.queuePreparedExplore(s,id,1);
   advance(s,.5);const q=s.tasks[0];assert(q.workerId);const remaining=q.remaining;
-  E.setArmyMode(s,'pursue');advance(s,.2);assert.equal(q.workerId,null);assert.equal(q.remaining,remaining);assert(!s.tiles[id].revealed);
+  E.setArmyMode(s,'pursue');s.enemies=[goblin(s,9,10)];advance(s,.2);assert.equal(q.workerId,null);assert.equal(q.remaining,remaining);assert(!s.tiles[id].revealed);s.enemies=[];
   E.setArmyMode(s,'defend');advance(s,8);assert(s.tiles[id].revealed);
 });
 test('Safe batch uses revealed zero clues, ignores flags and never duplicates reservations',()=>{
