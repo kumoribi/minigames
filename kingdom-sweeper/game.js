@@ -107,7 +107,7 @@
         const title=document.createElement('strong'),detail=document.createElement('span');
         title.textContent=`${r.direction}：${titles[r.kind]}`;
         detail.textContent=`横${r.x}〜${r.x+2}・縦${r.y}〜${r.y+2}の区画`;
-        b.append(title,detail);b.addEventListener('click',()=>{if(world.result)return;selected=E.index(r.x,r.y);setMode('select');sheet(null);center(selected);render();notice('紫枠は資源地帯の調査情報です。敵位置は数字から推理してください。');});return b;
+        b.append(title,detail);b.addEventListener('click',()=>{if(world.result)return;selected=E.index(r.x,r.y);setMode('select');sheet(null);center(selected);render();document.querySelector('.map-panel').scrollIntoView({block:'start'});notice('紫枠は資源地帯の調査情報です。敵位置は数字から推理してください。');});return b;
       }));
     }
     for(const k of ['food','wood','gold']) $(k).textContent=Math.floor(world.resources[k]);
@@ -118,6 +118,8 @@
     $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.pendingRewards.length ? '宝箱の強化を選択中・停止' : world.speed===0 ? '停止中・予約できます' : world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : world.dragonAwake ? 'Dragonとの決戦' : '領土を広げ、軍備を整えよう';
     $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
     $('raid-status').textContent=world.time<E.RAID_RULES.first?`定期出撃まで最短 ${Math.ceil(E.RAID_RULES.first-world.time)}秒（ゲーム内）。全域の未封印拠点・誤旗が対象。`:`定期出撃中：各地点60秒周期。出撃累計 ${world.raids.spawned}体 / 奇襲失敗 ${world.raids.ambushes}回。旗の正誤は非表示。`;
+    $('raid-summary').textContent=world.time<E.RAID_RULES.first?`出撃まで${Math.ceil(E.RAID_RULES.first-world.time)}秒`:`出撃中・累計${world.raids.spawned}体`;
+    $('raid-summary').title=$('raid-status').textContent;
     const has=kind=>world.tiles.some(t=>t.building?.kind===kind),soldiers=world.units.filter(u=>u.kind==='soldier').length;
     if(has('farm'))guideStage=Math.max(guideStage,1);if(has('farm')&&has('barracks'))guideStage=Math.max(guideStage,2);if(soldiers>=3)guideStage=Math.max(guideStage,3);if(world.kills)guideStage=Math.max(guideStage,4);if(world.dragonAwake)guideStage=5;
     const goals=[['農場で食料を安定させよう','停止中に農場・兵舎を予約。1:30以降、全域の未封印拠点から敵が出撃します。'],['兵舎を建てよう','兵舎を空き草地に建築。安全マスへの誤旗も敵を生むので、数字で推理しよう。'],['兵士を育成しよう','兵舎を選択 → 兵士育成。まず3体を目標に。旗なし拠点の開拓は強化部隊を招きます。'],['数字で敵拠点を封印しよう','正しい旗は出撃を封印。誤旗は出撃元。旗付きマスの攻略は選択情報から明示的に予約。'],['出撃を抑え、ドラゴンへ備えよう','正しい旗で出撃元を封印し、侵攻部隊を迎撃。旗付き拠点の計画攻略は通常部隊との戦い。'],['ドラゴンとの決戦','兵士は自動迎撃。定期出撃も続きます。襲撃表示から戦況を確認し、王城を守ろう。']];
@@ -176,7 +178,13 @@
     if(world.result&&!resultShown){resultShown=true;resultAt=visualTime+(reduced()?.15:1.2);sheet(null);if(world.result==='victory'){$('viewport').classList.add('celebrate');selected=world.dragonId;center(selected);renderer.playEffect({kind:'victory',...E.xy(selected)});sound(true);}notice(world.result==='victory'?'⚑ ドラゴン討伐！ 王国に平和が戻った！':'王城のHPが0になり、陥落しました。');$('result-label').textContent=world.result==='victory' ? 'VICTORY' : 'DEFEAT';$('result-title').textContent=world.result==='victory' ? '王国に平和が戻った！' : '王城が陥落しました';$('result-summary').textContent=`経過 ${timeText(world.time)} ・ 討伐 ${world.kills}体 ・ 領土 ${world.tiles.filter(t=>t.revealed).length}マス ・ 建物 ${world.tiles.filter(t=>t.building&&t.building.hp>0).length}棟 ・ 生存兵士 ${soldiers}体`;}
   }
   function center(id=world.keepId) {const t=world.tiles[id];viewport.scrollLeft=(t.x+.5)*CELL*zoom-viewport.clientWidth/2;viewport.scrollTop=(t.y+.5)*CELL*zoom-viewport.clientHeight/2;}
-  function fitMap(){if(!mobile.matches){viewport.style.height='';return;}const top=viewport.getBoundingClientRect().top+window.scrollY,dock=document.querySelector('.mobile-dock').getBoundingClientRect().height,next=Math.max(220,window.innerHeight-top-dock-70),old=viewport.clientHeight;if(Math.abs(old-next)>1){const mid=viewport.scrollTop+old/2;viewport.style.height=`${next}px`;viewport.scrollTop=mid-viewport.clientHeight/2;}}
+  function fitMap(){
+    const hudHeight=$('play-hud').getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--hud-height',`${Math.ceil(hudHeight)}px`);
+    const top=viewport.getBoundingClientRect().top+window.scrollY,dock=document.querySelector('.mobile-dock').getBoundingClientRect().height;
+    const next=Math.max(160,window.innerHeight-top-dock-$('queue-open').getBoundingClientRect().height-16),old=viewport.clientHeight;
+    if(Math.abs(old-next)>1){const mid=viewport.scrollTop+old/2;viewport.style.height=`${next}px`;viewport.scrollTop=mid-viewport.clientHeight/2;}
+  }
   window.addEventListener('resize',()=>{fitMap();});
   mobile.addEventListener('change',()=>{sheet(null);center(selected);});
   function setZoom(next) {const cx=(viewport.scrollLeft+viewport.clientWidth/2)/zoom,cy=(viewport.scrollTop+viewport.clientHeight/2)/zoom;zoom=Math.max(.6,Math.min(1.8,next));if(renderer?.scene)renderer.setZoom(zoom);else{canvas.style.width=`${1120*zoom}px`;canvas.style.height=`${1120*zoom}px`;} $('zoom-label').textContent=`${Math.round(zoom*100)}%`;viewport.scrollLeft=cx*zoom-viewport.clientWidth/2;viewport.scrollTop=cy*zoom-viewport.clientHeight/2;}

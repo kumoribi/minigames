@@ -6,16 +6,13 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
 <main>
-  <header><a href="../">‹ ミニゲーム集</a><button id="help-open" type="button">？ 遊び方</button></header>
-  <section class="hero">
-    <div><p class="eyebrow">KINGDOM SWEEPER</p><h1>キングダムスイーパー</h1><p class="tagline">数字を読み、未知の地に王国を築く。</p></div>
-    <img src="assets/keep.png" alt="" class="hero-castle">
-  </section>
+  <header class="site-header"><a href="../" aria-label="ミニゲーム集へ戻る">‹ ゲーム集</a><h1>キングダムスイーパー</h1><button id="help-open" type="button">？ 遊び方</button></header>
+  <div id="play-hud" class="play-hud" role="region" aria-label="常時表示の資源と操作">
   <section class="resources" aria-label="資源と人口">
     <div><span>🌾 FOOD</span><strong id="food">100</strong></div>
     <div><span>🪵 WOOD</span><strong id="wood">100</strong></div>
@@ -31,9 +28,11 @@
     </div>
     <div class="map-controls"><button id="zoom-out" aria-label="地図を縮小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="地図を拡大">＋</button><button id="center" title="王城へ移動" aria-label="王城へ移動">⌂ 王城</button></div>
   </section>
-  <section class="guide" aria-label="次の目標"><div><small id="guide-step"></small><strong id="guide-title"></strong><p id="guide-text"></p></div><button id="guide-toggle" aria-expanded="true">案内を隠す</button></section>
-  <p id="raid-status" class="notice" aria-label="定期出撃の状況">1:30以降、全域の未封印拠点・誤旗から60秒周期で敵が出撃します。</p>
-  <details class="survey" open><summary>探索先の候補：資源地帯</summary><p>紫枠は3×3区画のおおよその資源情報です。敵の位置や安全性は保証しません。数字を読み、短い接近路を攻めるか、0の続く別経路を探すか選びましょう。候補を押すと地図へ移動します（開拓予約はしません）。</p><div id="survey-regions"></div></details>
+  <div class="hud-meta">
+    <div class="keep-health"><span>王城HP <b id="keep-hp">900 / 900</b></span><i aria-hidden="true"><span id="keep-bar"></span></i><small id="army">Worker 3 ・ Soldier 0</small></div>
+    <div class="hud-time"><time id="clock">0:00</time><span id="raid-summary">出撃まで90秒</span></div>
+  </div>
+  </div>
   <div class="workspace">
     <section class="map-panel" aria-label="王国の地図">
       <div class="map-heading"><span><i class="live-dot"></i> <b id="status">開拓を開始しよう</b></span><small id="territory">領土 9 / 400</small></div>
@@ -43,15 +42,16 @@
         <button data-mode="flag" aria-pressed="false">⚑ 拠点封印</button>
         <button data-mode="pan" aria-pressed="false">✥ 地図移動</button>
       </div>
-      <button id="threat" class="threat" hidden></button>
+      <div class="map-scene">
+      <div class="battle-alerts"><button id="threat" class="threat" hidden></button>
       <div id="boss" class="boss" hidden><span>DRAGON <b id="boss-hp"></b></span><progress id="boss-bar" max="1200" value="1200"></progress></div>
+      </div>
       <div id="viewport" class="viewport" tabindex="0" aria-label="20×20地図。矢印キーでマス選択、Enterで操作">
         <canvas id="map" width="1120" height="1120" aria-label="未探索の地を開拓する王国マップ"></canvas>
         <div id="loading" class="loading">王国の地図を準備中…</div>
       </div>
-      <p class="map-help" id="mode-help">未探索マスをタップして開拓予約。敵拠点を旗なしで開くとHP・攻撃2倍の部隊！</p>
+      </div>
       <button id="queue-open" class="queue-open">作業予約を確認</button>
-      <div class="keep-health"><span>王城 HP <b id="keep-hp">900 / 900</b></span><i><span id="keep-bar"></span></i><small id="army">Worker 3 ・ Soldier 0</small></div>
     </section>
     <aside class="sidebar" id="context-panel" aria-label="王国の操作パネル">
       <div class="sheet-heading"><strong id="sheet-title">選択情報</strong><button id="sheet-close" aria-label="操作パネルを閉じる">×</button></div>
@@ -72,13 +72,19 @@
       </section>
     </aside>
   </div>
+  <details class="play-notes"><summary>進行ガイド・操作説明・出撃ルール</summary>
+    <section class="guide" aria-label="次の目標"><div><small id="guide-step"></small><strong id="guide-title"></strong><p id="guide-text"></p></div><button id="guide-toggle" aria-expanded="true">案内を隠す</button></section>
+    <p class="map-help" id="mode-help">未探索マスをタップして開拓予約。敵拠点を旗なしで開くとHP・攻撃2倍の部隊！</p>
+    <p id="raid-status" class="notice" aria-label="定期出撃の状況">1:30以降、全域の未封印拠点・誤旗から60秒周期で敵が出撃します。</p>
+  </details>
+  <details class="survey"><summary>探索先の候補：資源地帯</summary><p>紫枠は3×3区画のおおよその資源情報です。敵の位置や安全性は保証しません。数字を読み、短い接近路を攻めるか、0の続く別経路を探すか選びましょう。候補を押すと地図へ移動します（開拓予約はしません）。</p><div id="survey-regions"></div></details>
   <nav class="mobile-dock" aria-label="王国の操作"><button data-dock="explore">⛏ 開拓</button><button data-dock="build">⌂ 建築</button><button data-dock="army">⚔ 軍備</button><button data-dock="flag">⚑ 旗</button><button data-dock="pan">✥ 移動</button></nav>
   <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
   <section class="preferences"><label><input id="motion" type="checkbox"> 演出を控えめに</label><label><input id="sound" type="checkbox"> 効果音</label></section>
   <section class="panel upgrade-panel"><h2>この王国の強化</h2><p id="kingdom-upgrades">農場 +0% ・ 兵士攻撃 +0% ・ 塔射程 +0%</p><p id="tower-support"></p><button id="use-tower-support" type="button" disabled>設営支援で監視塔を計画</button><small>宝箱で獲得。同じ数値強化は基本値への加算、建物シナジーとは乗算。設営支援は1王国1回。新しい王国ではリセット。</small></section>
   <p id="notice" class="notice" role="status" aria-live="polite">Dragonの眠る場所を推測し、軍備を整えてから起こそう。</p>
   <div class="footer-grid">
-    <section class="panel"><div class="section-heading"><h2>王国の記録</h2><small id="clock">0:00</small></div><ol id="log" class="event-log"></ol></section>
+    <section class="panel"><div class="section-heading"><h2>王国の記録</h2></div><ol id="log" class="event-log"></ol></section>
     <details class="panel rules"><summary>遊び方・建物の効果</summary>
       <p>中央の王城から領土を広げ、眠るDragonを開拓して討伐すると勝利。王城HPが0になると敗北です。</p>
       <p><b>数字＝周囲8マスの初期危険度合計</b>。Goblin Campは1、Dragonは3。討伐後も数字は変わりません。数字は敵の残数ではありません。</p>
@@ -127,6 +133,7 @@
     <h3>困ったとき</h3>
     <dl><dt>建築できない</dt><dd>開拓済みの空き平地を選びます。森・鉱山・食料は採集し切ると平地になります。資源不足・別の予約・近くの敵も確認してください。</dd><dt>予約が「待機」のまま</dt><dd>上下左右の道がつながっていないか、Workerが別の作業中です。作業員が敵から退避することもあります。不要な予約は「×」で取消できます。</dd><dt>資源が増えない</dt><dd>開拓や建築を減らし、Workerに採集時間を与えます。資源マスを選択し「全Workerでこの資源を採集」で集中採集。「Workerの採集を自動に戻す」で分担に戻せます。</dd><dt>兵士を増やせない</dt><dd>FOOD・WOOD、人口上限、兵舎の育成待ち（最大5体）を確認。人口には育成予約も含まれます。</dd><dt>タブに戻ると止まっている</dt><dd>画面を離れると自動停止します。「1×」などで再開してください。</dd></dl>
     <h3>スマホ・PCの操作</h3>
+    <p>資源・人口・王城HP・速度・経過時間は上部の追従バーに常時表示します。地図直下の「進行ガイド・操作説明・出撃ルール」と「探索先の候補」は必要なときに展開。候補を選ぶと地図へ戻ります。襲撃通知・DragonのHPは地図上に重なって表示し、通知で地図の位置は変わりません。スマホの建築・軍備などは下部の操作バーから開けます。</p>
     <p>画面内の案内は進行に応じて変わり、「案内を隠す」で折りたためます。「作業予約を確認」で取消・作業地点への移動ができます。襲撃表示を押すと王城に最も近い敵へ移動。ドラゴンのHPは専用バーでも確認できます。</p>
     <p>「演出を控えめに」で動きを抑制（OSのモーション軽減設定も尊重）。効果音は初期OFFで、チェックした場合だけ再生します。演出は1×〜4×でも同じ長さで表示され、戦闘の計算や強さは変わりません。</p>
     <p>地図はPhaserで描画し、移動時の揺れ、斬撃・飛翔体、建築完成・霧解除の粒子を表示します。数字は演出より手前です。描画が重い場合は「演出を控えめに」をお試しください。静止画を使った動きで、ゲームの射程や当たり判定は変わりません。</p>
@@ -143,6 +150,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>報酬を1つ選択。この間、時間と戦闘は停止します。</p><div id="upgrade-choices"></div><small>塔がない王国の初回設営支援か、既存・今後の部隊や生産の強化かを選べます。設営支援の選択後は停止状態で配置を計画できます。</small></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=10"></script><script src="renderer.js?v=5"></script><script src="game.js?v=12"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=10"></script><script src="renderer.js?v=5"></script><script src="game.js?v=13"></script>
 </body>
 </html>
