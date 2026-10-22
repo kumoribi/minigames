@@ -125,6 +125,7 @@
     </ol>
     <h3>数字の読み方</h3>
     <p>数字は<b>周囲8マスの初期危険度の合計</b>です。ゴブリン拠点は1、Dragonの巣は3として数えます。</p>
+    <p><b>0の周囲8マスは自動で開拓予約</b>になります。開始時から見えている0にも適用し、新たに開いたマスが0なら連鎖して予約します。即座に開くのではなく、Workerが通常どおり3秒かけて作業します。旗付き・開拓済み・予約済みは除外。手動の建築・開拓を優先します。予約欄の「自動開拓」は取消可能で、取消後は自動で再登録しません。再開したいときは直接予約するか、0を選び「0周辺を手動で再予約」を押してください。</p>
     <ul><li><b>0：</b>周囲8マスには初期敵拠点・巣がありません。ただし、出現済みの敵は移動してきます。</li><li><b>1：</b>周囲にゴブリン拠点が1つあります。既に開いた拠点も含みます。</li><li><b>3：</b>Dragon1つの場合も、ゴブリン拠点3つの場合もあります。3だけではDragonと断定できません。</li></ul>
     <p>討伐・定期出撃・誤旗でも数字は変わりません。「拠点封印」で未探索マスに旗を付けます。正しい旗かは数字で推理し、旗を維持した明示的な拠点攻略で通常部隊を迎撃しましょう。未探索マスへ無差別に旗を付けると、大量の誤旗から敵が出現します。</p>
     <h3>困ったとき</h3>
@@ -151,6 +152,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>報酬を1つ選択。時間と戦闘は進行します。</p><div id="upgrade-choices"></div><small>設営支援の選択後も時間は進行します。後から選ぶ場合は閉じて上部の「報酬」から開き直せます。</small><button id="treasure-close" type="button">閉じて戦闘に戻る</button></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=16"></script><script src="renderer.js?v=8"></script><script src="game.js?v=16"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=17"></script><script src="renderer.js?v=8"></script><script src="game.js?v=17"></script>
 </body>
 </html>

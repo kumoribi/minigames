@@ -174,9 +174,9 @@
       if(count>=4)s.regions.push({id:i,kind,direction:r.dir.name,x:center.x,y:center.y,radius:1});
     }
   }
-  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true } = {}) {
+  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true, autoZero = true } = {}) {
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, phase:'ready', backgroundPaused:false, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], pendingSpawns:[], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
-    s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
+    s.autoZero=autoZero;s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
     s.towerSupport = { claimed: 0, available: 0, built: 0 };
     s.raids = { spawned: 0, ambushes: 0 };
     s.armyMode = 'pursue'; s.defenseRadius = 3;
@@ -197,6 +197,7 @@
     if(structured)planRegions(s);
     for(const tile of s.tiles)tile.clue=neighbors(tile.id).reduce((sum,id)=>sum+s.tiles[id].danger,0);
     for (let i = 0; i < 3; i++) addUnit(s, 'worker', s.keepId);
+    if(s.autoZero)for(const tile of s.tiles)if(tile.revealed&&tile.clue===0)queueSafeNeighbors(s,tile.id,{automatic:true});
     log(s, '1:30以降、未封印拠点と誤った旗から定期出撃。数字で推理し、軍備と封印を急ごう。');
     return s;
   }
@@ -215,10 +216,12 @@
     if(t.flag && s.tasks.some(q=>q.tileId===id&&q.kind==='explore'&&!q.assault)) cancelTask(s,id);
     return true;
   }
-  function queueExplore(s, id, { assault = false } = {}) {
+  function queueExplore(s, id, { assault = false, automatic = false } = {}) {
     const t = s.tiles[id]; if (s.result || !t || t.revealed || hasTask(s, id) || (t.flag && !assault) || (assault && !t.flag)) return false;
+    if(automatic&&t.autoExploreSuppressed)return false;
+    if(!automatic)t.autoExploreSuppressed=false;
     // Deep reservations wait until an adjacent tile becomes part of the territory.
-    s.tasks.push({ id: s.nextId++, kind: 'explore', tileId: id, remaining: 3, workerId: null, assault }); return true;
+    s.tasks.push({ id: s.nextId++, kind: 'explore', tileId: id, remaining: 3, workerId: null, assault, automatic }); return true;
   }
   function queueAssault(s,id) { return queueExplore(s,id,{assault:true}); }
   function setArmyMode(s, mode) {
@@ -239,10 +242,10 @@
         s.armyMode !== 'defend' || !rally?.revealed || distance(t, rally) > s.defenseRadius || !queueAssault(s, id)) return false;
     s.tasks.at(-1).preparation = { rally: s.rally, count }; return true;
   }
-  function queueSafeNeighbors(s, id) {
+  function queueSafeNeighbors(s, id, { automatic = false } = {}) {
     const t = s.tiles[id];
     if (s.result || !t?.revealed || t.clue !== 0) return 0;
-    return neighbors(id).filter(n => !s.tiles[n].flag && queueExplore(s, n)).length;
+    return neighbors(id).filter(n => !s.tiles[n].flag && queueExplore(s, n,{automatic})).length;
   }
   function buildCost(s, kind) { return kind==='tower'&&s.towerSupport.available>0?{}:BUILDINGS[kind]?.cost; }
   function queueBuild(s, id, kind) {
@@ -257,6 +260,7 @@
   }
   function cancelTask(s, id) {
     const task = s.tasks.find(t => t.tileId === id); if (!task || s.result) return false;
+    if(task.kind==='explore'&&s.autoZero)s.tiles[id].autoExploreSuppressed=true;
     if (task.kind === 'build') { pay(s, task.paidCost || BUILDINGS[task.building].cost, -1);if(task.supported)s.towerSupport.available++; }
     for (const u of s.units) if (u.task === task.id) u.task = null;
     s.tasks = s.tasks.filter(t => t !== task); return true;
@@ -300,6 +304,7 @@
     }
     else if (tile.terrain === 'chest') { s.resources.gold += 35; s.resources.wood += 20; s.resources.food += 20; tile.terrain = 'grass'; s.pendingRewards.push({ id: s.nextId++, tileId: id }); log(s, '宝箱発見！資源を獲得。3つの報酬から1つ選ぼう。', 'reward'); }
     s.effects.push({ kind: 'reveal', x: tile.x, y: tile.y, life: .8 });
+    if(s.autoZero&&tile.clue===0)queueSafeNeighbors(s,id,{automatic:true});
   }
   // Four-neighbour paths keep movement inside revealed territory.
   function path(s, from, goals, throughFog = false) {
@@ -464,7 +469,8 @@
     if(yieldToWorker(s,u,dt))return;
     if (!task) {
       u.task = null;
-      task = s.tasks.find(t => !t.workerId && !preparationStatus(s, t) && taskGoals(s, t).length && path(s, u, taskGoals(s, t)) !== null);
+      // Explicit player orders take precedence over expanding automatic zero jobs.
+      task = [...s.tasks].sort((a,b)=>Number(Boolean(a.automatic))-Number(Boolean(b.automatic))).find(t => !t.workerId && !preparationStatus(s, t) && taskGoals(s, t).length && path(s, u, taskGoals(s, t)) !== null);
       if (task) { task.workerId = u.id; u.task = task.id; }
     }
     if (task) {

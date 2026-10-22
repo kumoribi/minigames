@@ -161,7 +161,7 @@
     const rally=world.tiles[world.rally];
     $('army-orders').textContent=`集合地点 (${rally.x+1},${rally.y+1})：${world.armyMode==='defend'?'半径3マスを防衛。範囲外は追わず、接近されたら自衛。':'全域の敵を自動追撃。'}`;
     if(!t.revealed && t.flag && !task) actions+=button('assault','旗を維持して拠点攻略予約')+button('prepare','集結後に拠点攻略予約');
-    if(t.revealed && t.clue===0) actions+=button('safe','周囲の安全マスをまとめて予約');
+    if(t.revealed && t.clue===0) actions+=button('safe','0周辺を手動で再予約');
     if(task?.preparation) $('tile-description').textContent+=` ・ ${E.preparationStatus(world,task)||'集結完了・開拓準備中'} ・ 集合(${world.tiles[task.preparation.rally].x+1},${world.tiles[task.preparation.rally].y+1})`;
     const stats=world.stats;
     $('result-stats').textContent=`損失：Worker ${stats.lost.worker}体 / 兵士 ${stats.lost.soldier}体。育成完了：Worker ${stats.trained.worker}体 / 兵士 ${stats.trained.soldier}体。実支出：WOOD ${stats.spent.wood} / FOOD ${stats.spent.food} / GOLD ${stats.spent.gold}（取消返金を控除、育成待ちを含む）。`;
@@ -177,7 +177,7 @@
     if(actions!==actionKey){$('tile-actions').innerHTML=actions;actionKey=actions;}
     $('queue-count').textContent=world.tasks.length;
     $('queue-open').textContent=`作業予約 ${world.tasks.length}件を確認`;
-    const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : q.preparation ? '集結攻略' : q.assault ? '拠点攻略' : '開拓'} (${t.x+1},${t.y+1}) <small>${E.preparationStatus(world,q) || (q.workerId ? `${Math.ceil(q.remaining)}秒` : '接続・作業員待ち')}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
+    const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : q.preparation ? '集結攻略' : q.assault ? '拠点攻略' : q.automatic ? '自動開拓' : '開拓'} (${t.x+1},${t.y+1}) <small>${E.preparationStatus(world,q) || (q.workerId ? `${Math.ceil(q.remaining)}秒` : '接続・作業員待ち')}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
     if(queues!==queueKey){$('queue-list').innerHTML=queues;queueKey=queues;}
     if(lastEvent!==world.events.at(-1)) {lastEvent=world.events.at(-1);notice(lastEvent.text);$('log').replaceChildren(...world.events.slice(-6).reverse().map(e=>{const li=document.createElement('li');li.textContent=`${timeText(e.time)} ${e.text}`;return li;}));}
     renderReward();

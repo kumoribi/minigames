@@ -1,8 +1,9 @@
 'use strict';
 const assert = require('node:assert/strict');
 const Engine = require('./engine.js');
-// Most historical fixtures exercise a running kingdom. Readiness is tested separately.
-const E = {...Engine,create(...args){const s=Engine.create(...args);Engine.start(s);return s;}};
+// Historical scenarios supply their own orders; isolate them from auto-generated
+// work. Production defaults and auto-zero integration are exercised separately.
+const E = {...Engine,create(seed,options={}){const s=Engine.create(seed,{...options,autoZero:false});Engine.start(s);return s;}};
 let checks = 0;
 function test(name, fn) { fn(); checks++; console.log('PASS', name); }
 function advance(s, seconds) { for (let t = 0; t < seconds; t += .05) E.tick(s, .05); }
@@ -530,5 +531,54 @@ test('Later enemies in the same tick skip a just-destroyed Tower and select a su
   const s=trafficFixture(),first=s.tiles[E.index(5,5)],next=s.tiles[E.index(6,6)];first.building=fixtureBuilding('tower');first.building.hp=7;first.building.cooldown=Infinity;next.building=fixtureBuilding('tower');next.building.cooldown=Infinity;
   const a=goblin(s,5.7,5),b=goblin(s,5,6);a.cooldown=b.cooldown=0;s.enemies=[a,b];E.tick(s,.05);
   assert.equal(first.building,null);assert.equal(E.enemyTarget(s,b),next);assert.equal(s.effects.filter(e=>e.kind==='destroy').length,1);assert.equal(s.tiles[s.keepId].building.hp,900);
+});
+function autoFixture(){
+  const s=Engine.create(42);s.tasks=[];s.units=[];
+  for(const t of s.tiles){t.revealed=false;t.flag=false;t.danger=0;t.clue=0;t.terrain='grass';t.amount=0;t.autoExploreSuppressed=false;}
+  s.tiles[s.keepId].revealed=true;Engine.start(s);return s;
+}
+test('Production default: 100 seeds reserve exactly the hidden neighbors of initial zero cells, without opening them',()=>{
+  for(let seed=0;seed<100;seed++){
+    const s=Engine.create(seed),expected=new Set();assert(s.autoZero);
+    for(const t of s.tiles)if(t.revealed&&t.clue===0)for(const id of Engine.neighbors(t.id))if(!s.tiles[id].revealed&&!s.tiles[id].flag)expected.add(id);
+    assert.equal(s.tasks.length,expected.size);assert.deepEqual(new Set(s.tasks.map(q=>q.tileId)),expected);
+    assert(s.tasks.every(q=>q.automatic&&q.kind==='explore'&&q.remaining===3&&!q.workerId&&s.tiles[q.tileId].danger===0));
+    Engine.tick(s,1);assert.equal(s.time,0);assert.equal(s.tiles.filter(t=>t.revealed).length,9);assert.equal(s.enemies.length,0);
+  }
+});
+test('Opening a zero reserves eight neighbors once, preserving flags/manual reservations; numbered cells do not expand',()=>{
+  const s=autoFixture(),id=E.index(10,9),flagged=E.index(11,9),manual=E.index(9,9);s.tiles[flagged].flag=true;assert(Engine.queueExplore(s,manual));
+  const count=s.tiles.filter(t=>t.revealed).length;Engine.reveal(s,id);
+  assert.equal(s.tiles.filter(t=>t.revealed).length,count+1);assert(!s.tasks.some(q=>q.tileId===flagged));
+  assert.equal(s.tasks.filter(q=>q.tileId===manual).length,1);assert(!s.tasks.find(q=>q.tileId===manual).automatic);
+  const expected=E.neighbors(id).filter(n=>!s.tiles[n].revealed&&!s.tiles[n].flag);assert.deepEqual(new Set(s.tasks.map(q=>q.tileId)),new Set(expected));
+  const queued=s.tasks.length;Engine.reveal(s,id);assert.equal(s.tasks.length,queued);
+  const numbered=E.index(3,3);s.tiles[numbered].clue=1;Engine.reveal(s,numbered);assert.equal(s.tasks.length,queued);
+  const corner=autoFixture();Engine.reveal(corner,0);assert.deepEqual(new Set(corner.tasks.map(q=>q.tileId)),new Set([1,20,21]));
+});
+test('Real Workers extend automatic zero reservations on multiple production seeds without opening danger cells',()=>{
+  for(const seed of [3,34,91]){
+    const s=Engine.create(seed),initial=new Set(s.tasks.map(q=>q.tileId));Engine.start(s);let chained=false;
+    simulateTraffic(s,30,()=>{chained ||= s.tasks.some(q=>q.automatic&&!initial.has(q.tileId));assert(s.tasks.every(q=>s.tiles[q.tileId].danger===0));});
+    assert(s.tiles.filter(t=>t.revealed).length>9);assert(chained);assert(s.tiles.filter(t=>t.revealed).every(t=>t.danger===0));assert(!s.dragonAwake);assert.equal(s.enemies.length,0);
+  }
+});
+test('Explicit building orders take priority over the initial automatic backlog',()=>{
+  const s=Engine.create(42),id=E.index(9,9);s.tiles[id].terrain='grass';assert(s.tasks.some(q=>q.automatic));assert(Engine.queueBuild(s,id,'farm').ok);
+  Engine.start(s);Engine.tick(s,.05);const job=s.tasks.find(q=>q.tileId===id);assert(job.workerId);assert(!job.automatic);
+  simulateTraffic(s,10);assert.equal(s.tiles[id].building?.kind,'farm');
+});
+test('Cancelled automatic reservations stay suppressed across other zero reveals, until explicitly requeued',()=>{
+  const s=autoFixture(),zero=E.index(10,9),target=E.index(11,9),other=E.index(11,10);Engine.reveal(s,zero);assert(s.tasks.some(q=>q.tileId===target));
+  assert(Engine.cancelTask(s,target));assert(s.tiles[target].autoExploreSuppressed);Engine.reveal(s,other);simulateTraffic(s,1);
+  assert(!s.tasks.some(q=>q.tileId===target));Engine.queueSafeNeighbors(s,other);assert(s.tasks.some(q=>q.tileId===target));assert(!s.tiles[target].autoExploreSuppressed);
+  assert(Engine.cancelTask(s,target));assert(Engine.queueExplore(s,target));assert(!s.tasks.find(q=>q.tileId===target).automatic);
+  const fresh=Engine.create(42);assert(fresh.tasks.some(q=>q.tileId===target)||fresh.tiles[target].revealed);assert(!fresh.tiles[target].autoExploreSuppressed);
+});
+test('A flag cancels assigned automatic work and releases its Worker; results prohibit new auto reservations',()=>{
+  const s=Engine.create(42);Engine.start(s);Engine.tick(s,.05);const job=s.tasks.find(q=>q.automatic&&q.workerId);assert(job);
+  const worker=s.units.find(u=>u.id===job.workerId);assert(Engine.setFlag(s,job.tileId));assert(!s.tasks.includes(job));assert.equal(worker.task,null);assert(s.tiles[job.tileId].flag);
+  Engine.queueSafeNeighbors(s,s.keepId,{automatic:true});assert(!s.tasks.some(q=>q.tileId===job.tileId));
+  s.result='victory';const count=s.tasks.length;assert.equal(Engine.queueSafeNeighbors(s,s.keepId,{automatic:true}),0);assert.equal(s.tasks.length,count);
 });
 console.log(`${checks} scenarios passed.`);
