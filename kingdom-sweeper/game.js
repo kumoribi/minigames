@@ -152,7 +152,7 @@
       windmill:'黄色枠内の農場を25%増産。風車を複数隣接させても重複しません。',
       barracks:`青枠：鍛冶屋の隣接判定（上下左右）。${forged ? '効果ON：育成完了時の兵士が攻撃・HP×1.2。' : '効果なし：通常兵士を育成。'}既に育成済みの兵士は変わりません。`,
       blacksmith:'青枠内の兵舎から育成完了した兵士の攻撃・HPを20%強化。複数の鍛冶屋でも重複しません。',
-      tower:`青い円：射程${E.towerRange(world).toFixed(2)}マス。範囲内の敵を自動攻撃。`
+      tower:`青い円：射程${E.towerRange(world).toFixed(2)}マス。範囲内の敵を自動攻撃。敵からも攻撃され、HP0で破壊されます。跡地は敵が近くにいなければ再建可能。`
     })[k] || '';
     $('kingdom-upgrades').textContent=`農場 +${world.upgrades.farm*25}% ・ 兵士攻撃 +${world.upgrades.soldier*20}% ・ 王城・塔射程 +${Math.round(world.upgrades.tower*E.UPGRADES.tower.step*100)}%`;
     let actions='';

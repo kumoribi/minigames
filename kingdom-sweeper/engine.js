@@ -492,6 +492,22 @@
     }
   }
   function hit(s, target, damage, source) { target.hp -= damage; s.effects.push({ kind: 'hit', source: source.kind || source.building?.kind, sourceId: source.id, targetId: target.id, damage, x: target.x, y: target.y, fromX: source.x, fromY: source.y, life: .3 }); }
+  function enemyTarget(s,enemy){
+    // Units win exact-distance ties; all candidates share the same local radius.
+    const candidates=[...s.units.filter(u=>u.hp>0&&distance(u,enemy)<4),...s.tiles.filter(t=>t.building?.kind==='tower'&&t.building.hp>0&&distance(t,enemy)<4)];
+    return nearest(candidates,enemy)||s.tiles[s.keepId];
+  }
+  function hitEnemyTarget(s,target,enemy){
+    const building=target.building;
+    hit(s,building||target,enemy.attack,enemy);
+    if(!building)return;
+    const effect=s.effects.at(-1);effect.x=target.x;effect.y=target.y;effect.targetId=target.id;effect.targetType='building';
+    if(building.kind==='tower'&&building.hp<=0){
+      target.building=null;
+      s.effects.push({kind:'destroy',x:target.x,y:target.y,life:.8});
+      log(s,`監視塔 (${target.x+1},${target.y+1}) が破壊されました。敵を遠ざければ跡地に再建できます。`,'danger');
+    }
+  }
   function updateSoldier(s, u, dt) {
     const rally = s.tiles[s.rally], defending = s.armyMode === 'defend';
     const enemy = nearest(s.enemies.filter(e => e.hp > 0 && (!defending || distance(e, rally) <= s.defenseRadius || inMelee(e,u))), u);
@@ -522,10 +538,9 @@
     s.pendingSpawns=s.pendingSpawns.filter(p=>{if(!placeBody(s,p.enemy,p.origin))return true;s.enemies.push(p.enemy);trackBody(s,p.enemy);return false;});
     for (const e of s.enemies) if (e.hp > 0) {
       e.cooldown = Math.max(0, e.cooldown - dt);
-      const nearby = nearest(s.units.filter(u => u.hp > 0 && distance(u, e) < 4), e), target = nearby || s.tiles[s.keepId];
-      const d = distance(e, target);
+      const target=enemyTarget(s,e);
       if (inMelee(e,target)) {
-        if (!e.cooldown) { hit(s, nearby || target.building, e.attack, e); if (!nearby) { const effect = s.effects.at(-1); effect.x = target.x; effect.y = target.y; } e.cooldown = e.kind === 'dragon' ? 1.4 : 1.1; }
+        if (!e.cooldown) { hitEnemyTarget(s,target,e);e.cooldown=e.kind==='dragon'?1.4:1.1; }
       } else { const id = index(Math.max(0, Math.min(19, Math.round(target.x))), Math.max(0, Math.min(19, Math.round(target.y)))); move(s, e, [id], e.kind === 'dragon' ? 1 : 1.35, dt); }
     }
     for (const e of s.enemies.filter(e => e.hp <= 0)) { s.kills++; s.resources.gold += e.kind === 'dragon' ? 150 : 6; if (e.kind === 'dragon') { s.result = 'victory'; log(s, 'Dragon討伐！王国に平和が戻った。', 'reward'); } }
@@ -536,6 +551,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

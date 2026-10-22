@@ -496,4 +496,39 @@ test('Tower bonus is additive +5 percent, and Keep/Tower honor the upgraded boun
     assert.equal(E.towerRange(E.create(42)),3);
   }
 });
+test('Enemies choose the nearest local unit or living Tower; ignore other buildings and use Keep as fallback',()=>{
+  for(const kind of ['goblin','dragon']){
+    const s=trafficFixture(),enemy={...goblin(s,5,5),kind},tower=s.tiles[E.index(7,5)];tower.building=fixtureBuilding('tower');
+    const unit=trafficWorker(s,8,5),farm=s.tiles[E.index(5,6)];farm.building=fixtureBuilding('farm');
+    assert.equal(E.enemyTarget(s,enemy),tower);unit.x=6;assert.equal(E.enemyTarget(s,enemy),unit);
+    unit.x=7;assert.equal(E.enemyTarget(s,enemy),unit); // exact-distance tie
+    unit.hp=0;tower.building.hp=0;assert.equal(E.enemyTarget(s,enemy),s.tiles[s.keepId]);
+    tower.building.hp=300;enemy.x=3;assert.equal(E.enemyTarget(s,enemy),s.tiles[s.keepId]); // exactly 4 excluded
+    enemy.x=3.001;assert.equal(E.enemyTarget(s,enemy),tower);
+  }
+});
+test('Goblin and Dragon approach and damage a nearby Tower instead of the distant Keep',()=>{
+  for(const kind of ['goblin','dragon']){
+    const s=trafficFixture(),tower=s.tiles[E.index(5,5)];tower.building=fixtureBuilding('tower');tower.building.cooldown=Infinity;
+    const enemy={...goblin(s,5,3),kind,hp:1200,maxHp:1200,attack:kind==='dragon'?28:7};s.enemies.push(enemy);
+    let towerHit=false;simulateTraffic(s,6,()=>{towerHit ||= s.effects.some(e=>e.kind==='hit'&&e.targetType==='building'&&e.targetId===tower.id&&e.x===5&&e.y===5);});
+    assert(towerHit);assert(tower.building.hp<300);assert.equal(s.tiles[s.keepId].building.hp,900);
+  }
+});
+test('A destroyed Tower stops firing, leaves a rebuildable tile and does not refund support or upgrades',()=>{
+  const s=trafficFixture(),id=E.index(5,5),tile=s.tiles[id];tile.building=fixtureBuilding('tower');tile.building.hp=7;tile.building.cooldown=Infinity;tile.building.supported=true;
+  s.towerSupport={claimed:1,available:0,built:1};s.upgrades.tower=2;s.resources={wood:1000,food:1000,gold:1000};
+  const enemy=goblin(s,5.7,5);enemy.cooldown=0;s.enemies=[enemy];E.tick(s,.05);
+  assert.equal(tile.building,null);assert.equal(tile.terrain,'grass');assert.equal(s.result,null);assert.equal(s.towerSupport.available,0);assert.equal(s.upgrades.tower,2);assert.equal(s.resources.gold,1000);
+  assert.equal(s.effects.filter(e=>e.kind==='destroy').length,1);assert.equal(s.events.filter(e=>e.text.includes('が破壊されました')).length,1);
+  assert.equal(E.enemyTarget(s,enemy),s.tiles[s.keepId]);assert(!E.queueBuild(s,id,'tower').ok); // enemy too close
+  simulateTraffic(s,1);assert(!s.effects.some(e=>e.source==='tower'&&e.sourceId===id));
+  s.enemies=[];trafficWorker(s,5,7);assert(E.queueBuild(s,id,'tower').ok);assert.equal(s.resources.gold,985);
+  simulateTraffic(s,15);assert.equal(tile.building?.kind,'tower');assert.equal(tile.building.hp,300);assert(!tile.building.supported);
+});
+test('Later enemies in the same tick skip a just-destroyed Tower and select a surviving Tower',()=>{
+  const s=trafficFixture(),first=s.tiles[E.index(5,5)],next=s.tiles[E.index(6,6)];first.building=fixtureBuilding('tower');first.building.hp=7;first.building.cooldown=Infinity;next.building=fixtureBuilding('tower');next.building.cooldown=Infinity;
+  const a=goblin(s,5.7,5),b=goblin(s,5,6);a.cooldown=b.cooldown=0;s.enemies=[a,b];E.tick(s,.05);
+  assert.equal(first.building,null);assert.equal(E.enemyTarget(s,b),next);assert.equal(s.effects.filter(e=>e.kind==='destroy').length,1);assert.equal(s.tiles[s.keepId].building.hp,900);
+});
 console.log(`${checks} scenarios passed.`);

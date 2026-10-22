@@ -139,6 +139,7 @@
     <p>王城は最初から監視塔と同じ自動攻撃（射程3マス・攻撃14・1秒間隔）で防衛します。選択すると青い射程円と能力を表示。遠見の眼（塔の射程+5%）は王城にも有効です。HP900、Food・Wood各毎秒0.3、Worker育成は従来どおり。王城があっても初回の独立した監視塔の設営支援は選択できます。</p>
     <p>農場の周囲8マスに風車を建てると、生産量が25%増えます。兵舎の上下左右に鍛冶屋を建てると、その後育成完了した兵士の攻撃・HPが20%増えます。どちらも複数隣接させても重複しません。選択した建物の黄色枠は風車、青枠は鍛冶屋の判定範囲です。監視塔を選ぶと射程が青い円で表示されます。</p>
     <h3>宝箱の3択強化</h3>
+    <p>Goblin・Dragonは、4マス未満にいるWorker・Soldier・生存中の監視塔から最も近い対象を攻撃します。同じ距離ならユニットを優先。周囲に対象がなければ王城へ向かいます。農場など他の建物は対象外です。監視塔は被害を受けるとHPバーが表示され、HP0で破壊・自動攻撃停止。敵を遠ざければ空き平地になった跡地へ通常費用で再建できます。破壊されても設営支援は戻りません。</p>
     <p>宝箱は資源に加え「農場生産+25%」「全兵士攻撃+20%」「塔射程+5%」の3択。ただし塔がなく設営支援を未取得のとき、3枠目は「前線設営の支援」です。次の監視塔1棟のWOOD60・GOLD15を免除します。1王国1回で、開拓済みの空き平地・敵との距離・Worker建築8秒は通常どおり。予約取消は支援を返し、資源の払い戻しはありません。「この王国の強化」で未使用・予約中・設営済みを確認し、後から配置もできます。</p>
     <p>設営支援を選ぶと塔の配置モードへ移ります。時間は止まらないので、空き平地へ予約してください。支援を使わず別の操作に戻っても失いません。報酬を閉じても上部の「報酬」から再表示可能。複数の宝箱は順番に選び、設営支援を選んだ後の宝箱は塔射程強化になります。数値強化は基本値に加算、シナジーとは乗算し、既存・今後の対象に有効。新しい王国では全てリセットします。</p>
     <h3>現在の制限</h3>
@@ -150,6 +151,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>報酬を1つ選択。時間と戦闘は進行します。</p><div id="upgrade-choices"></div><small>設営支援の選択後も時間は進行します。後から選ぶ場合は閉じて上部の「報酬」から開き直せます。</small><button id="treasure-close" type="button">閉じて戦闘に戻る</button></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=15"></script><script src="renderer.js?v=7"></script><script src="game.js?v=15"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=16"></script><script src="renderer.js?v=8"></script><script src="game.js?v=16"></script>
 </body>
 </html>

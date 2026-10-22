@@ -116,7 +116,11 @@
         } else if ((tile.revealed || !tile.flag) && flag) { flag.destroy(); this.flags.delete(tile.id); }
         if (!tile.revealed) continue;
         const key = `${tile.terrain}:${tile.building?.kind || ''}`;
-        if (this.tiles.get(tile.id)?.key === key) continue;
+        if (this.tiles.get(tile.id)?.key === key) {
+          const health=this.tiles.get(tile.id).health;
+          if(health){health.clear();if(tile.building?.hp<tile.building?.maxHp){health.fillStyle(0x251b16).fillRect(tile.x*CELL+6,tile.y*CELL+CELL-9,44,5);health.fillStyle(0xeac578).fillRect(tile.x*CELL+6,tile.y*CELL+CELL-9,44*Math.max(0,tile.building.hp/tile.building.maxHp),5);}}
+          continue;
+        }
         if (this.tiles.has(tile.id)) this.tiles.get(tile.id).objects.forEach(o => o.destroy());
         const x = tile.x * CELL, y = tile.y * CELL, objects = [];
         objects.push(this.image('grass', x, y, CELL, CELL));
@@ -129,7 +133,8 @@
         objects.push(scene.add.text(x + 13, y + 3, String(tile.clue), {
           fontFamily: 'sans-serif', fontSize: '16px', fontStyle: 'bold', color: '#' + COLORS[Math.min(4, tile.clue)].toString(16)
         }).setOrigin(.5, 0).setDepth(9001));
-        this.tiles.set(tile.id, { key, objects, building });
+        const health=tile.building?.kind==='tower'?scene.add.graphics().setDepth(9001):null;if(health)objects.push(health);
+        this.tiles.set(tile.id, { key, objects, building, health });
       }
       this.drawOrders(world, options);
       const alive = new Set(), moving = world.phase==='running' && !world.backgroundPaused && !world.result && !document.hidden;
@@ -222,7 +227,7 @@
       if (effect.kind === 'hit') {
         const fromX = (effect.fromX + .5) * CELL, fromY = (effect.fromY + .5) * CELL;
         const color = effect.source === 'dragon' ? 0xff8e45 : effect.source === 'goblin' ? 0xef9981 : 0xffe69e;
-        const victims = this.units.has(effect.targetId) ? [this.units.get(effect.targetId)] : [];
+        const victims = effect.targetType!=='building'&&this.units.has(effect.targetId) ? [this.units.get(effect.targetId)] : [];
         if (!quiet) for (const victim of victims) if (scene.time.now - victim.lastHit > 600) {
           victim.lastHit = scene.time.now; victim.sprite.setTint(0xe8c6a4);
           scene.time.delayedCall(140, () => { if (victim.sprite.active) victim.sprite.clearTint(); });
@@ -241,6 +246,8 @@
         else slash.beginPath().arc(0, 0, effect.source === 'dragon' ? 29 : 20, -2.6, .3).strokePath();
         this.own(slash, quiet ? 160 : 280, quiet ? {} : { angle: 32 });
         burst(effect.source === 'dragon' ? 'fire' : 'gold', effect.source === 'dragon' ? 12 : 5);
+      } else if (effect.kind === 'destroy') {
+        burst('dust',18);burst('fire',8);this.label(x,y-28,'監視塔破壊','#ffb296',quiet,900);
       } else if (effect.kind === 'build') {
         const tile = this.world.tiles[E.index(effect.x, effect.y)], sprite = this.tiles.get(tile.id)?.building;
         if (sprite && !quiet) { sprite.setScale(sprite.baseScale * .88); scene.tweens.add({ targets: sprite, scaleX: sprite.baseScale, scaleY: sprite.baseScale, duration: 420, ease: 'Back.Out' }); }
