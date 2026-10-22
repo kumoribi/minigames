@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const CELL = 56, MAP = 1120, E = window.KingdomEngine;
-  const SIZES = { worker: 42, soldier: 50, goblin: 50, dragon: 108 };
+  const SIZES = Object.fromEntries(Object.entries(E.UNIT_VISUALS).map(([kind,v])=>[kind,v.size]));
   const COLORS = [0xd4ddbf, 0xa2ddff, 0xfff292, 0xffa67f, 0xff8795];
   function renderType() {
     if (location.protocol === 'file:') return Phaser.CANVAS;
@@ -138,6 +138,8 @@
         if (!view) {
           const size = SIZES[unit.kind], texture = scene.textures.exists(unit.kind) ? unit.kind : 'ks-missing';
           const sprite = scene.add.image(0, 0, texture).setOrigin(.5, .5);
+          const visual=E.UNIT_VISUALS[unit.kind];
+          if(texture!=='ks-missing')sprite.setOrigin((visual.bounds[0]+visual.bounds[2])/2/visual.width,(visual.bounds[1]+visual.bounds[3])/2/visual.height);
           const scale = Math.min(size / sprite.width, size / sprite.height); sprite.setScale(scale);
           const shadow = scene.add.ellipse(0, 12, size * .6, 12, 0x071c16, .45);
           const hp = scene.add.graphics(), retreat = scene.add.text(0, -size * .65 - 14, '退避', { fontSize: '12px', color: '#ffd0aa', backgroundColor: '#193326' }).setOrigin(.5, 1).setVisible(false);
@@ -160,11 +162,12 @@
           view.hp.fillStyle(0x251b16).fillRect(-width / 2, y, width, 5);
           view.hp.fillStyle(unit.kind === 'goblin' || unit.kind === 'dragon' ? 0xfa7265 : 0xa5e28c).fillRect(-width / 2, y, width * Math.max(0, Math.min(1, unit.hp / unit.maxHp)), 5);
         }
-        view.retreat.setVisible(unit.kind === 'worker' && world.enemies.some(e => Math.hypot(e.x - unit.x, e.y - unit.y) < 2.2));
+        view.retreat.setText(unit.waitingNonSolid?'待避・待機':'退避').setVisible(unit.kind === 'worker' && (Boolean(unit.waitingNonSolid)||world.enemies.some(e => Math.hypot(e.x - unit.x, e.y - unit.y) < 2.2)));
+        view.sprite.setAlpha(unit.waitingNonSolid?.55:1);
       }
       for (const [id, view] of this.units) if (!alive.has(id)) {
         if (!quiet && this.visible(view.container.x, view.container.y)) {
-          const ghost = scene.add.image(view.container.x, view.container.y, view.sprite.texture.key).setOrigin(.5, .5).setScale(view.scale).setFlipX(view.sprite.flipX).setTint(0x81937b).setDepth(6000);
+          const ghost = scene.add.image(view.container.x, view.container.y, view.sprite.texture.key).setOrigin(view.sprite.originX, view.sprite.originY).setScale(view.scale).setFlipX(view.sprite.flipX).setTint(0x81937b).setDepth(6000);
           this.own(ghost, 380, { y: ghost.y + 7, scaleY: view.scale * .65 });
         }
         scene.tweens.killTweensOf(view.pose); view.container.destroy(); this.units.delete(id);

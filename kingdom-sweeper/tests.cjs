@@ -110,7 +110,7 @@ test('Tower upgraded range affects combat, Soldier upgrade affects existing comb
   const enemy={id:99,kind:'goblin',x:9,y:5.5,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];
   advance(s,.1);assert.equal(enemy.hp,100);E.chooseUpgrade(s,chest(s,0),'tower');advance(s,.1);assert.equal(enemy.hp,86);
   const towerHit=s.effects.find(e=>e.kind==='hit');assert.equal(towerHit.sourceId,id);assert.equal(towerHit.targetId,enemy.id);
-  const u={id:111,kind:'soldier',x:enemy.x+1.15,y:enemy.y,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
+  const u={id:111,kind:'soldier',x:enemy.x+.7,y:enemy.y,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
   E.chooseUpgrade(s,chest(s,1),'soldier');const hp=enemy.hp;advance(s,.05);assert(Math.abs(hp-enemy.hp-19.2)<1e-9);
   const soldierHit=s.effects.find(e=>e.sourceId===u.id);assert.equal(soldierHit.targetId,enemy.id);assert.equal(soldierHit.fromX,u.x);
 });
@@ -126,7 +126,7 @@ test('Defense holds rally against distant enemies; pursue retains previous behav
 test('Defense engages inside radius, returns after combat, and permits close self-defense',()=>{
   const s=E.create(31);s.tiles.forEach(t=>t.revealed=true);const u=soldier(s);s.units=[u];s.enemies=[goblin(s,12,10)];E.setArmyMode(s,'defend');
   advance(s,4);assert.equal(s.enemies.length,0);advance(s,3);assert(Math.hypot(u.x-10,u.y-10)<.2);
-  u.x=17;const e=goblin(s,18.2,10);s.enemies=[e];advance(s,.1);assert.equal(e.hp,32);
+  u.x=17;const e=goblin(s,17.7,10);s.enemies=[e];advance(s,.1);assert.equal(e.hp,32);
   s.enemies=[];advance(s,5);assert(Math.hypot(u.x-10,u.y-10)<.2);
 });
 test('Prepared exploration waits without holding Workers; gathers and resumes when assembled',()=>{
@@ -348,9 +348,9 @@ test('Keep defense preserves HP, income and training; treasure continues but bac
 function assertSeparated(s){
   const all=[...s.units,...s.enemies].filter(u=>u.hp>0);
   for(let i=0;i<all.length;i++){
-    const a=all[i],h=E.bodyHalf(a);assert(Number.isFinite(a.x)&&Number.isFinite(a.y));
+    const a=all[i],h=E.bodyRadius(a);assert(Number.isFinite(a.x)&&Number.isFinite(a.y));
     assert(a.x>=h-.5-1e-7&&a.y>=h-.5-1e-7&&a.x<=19.5-h+1e-7&&a.y<=19.5-h+1e-7);
-    for(let j=i+1;j<all.length;j++)assert(!E.overlaps(a,all[j]),`overlap ${a.id}/${all[j].id} at ${s.time}`);
+    for(let j=i+1;j<all.length;j++)if(E.collisionEnabled(a)&&E.collisionEnabled(all[j]))assert(Math.hypot(a.x-all[j].x,a.y-all[j].y)>=h+E.bodyRadius(all[j])-1e-7,`circle overlap ${a.id}/${all[j].id} at ${s.time}`);
   }
 }
 test('Ready phase starts once; no manual speed/pause state; only background suspension and results stop ticks',()=>{
@@ -448,5 +448,39 @@ test('Twenty Soldiers arrive around the rally without shared staging deadlock or
   const s=trafficFixture();E.setArmyMode(s,'defend');for(let i=0;i<20;i++)addSoldier(s,5,5);
   simulateTraffic(s,80);assert.equal(s.units.filter(u=>Math.hypot(u.x-10,u.y-10)<4.5).length,20);
   const spots=s.units.filter(u=>u.rallySpot).map(u=>`${u.rallySpot.x},${u.rallySpot.y}`);assert.equal(new Set(spots).size,20);
+});
+test('Circular bodies use visible PNG content size and allow diagonals outside the circle',()=>{
+  const expected={worker:90*42/128,soldier:82*50/128,goblin:101*50/128,dragon:188*108/192};
+  for(const [kind,diameter] of Object.entries(expected))assert(Math.abs(E.bodyRadius({kind})*112-diameter)<1e-10);
+  const a={kind:'worker',hp:55,x:0,y:0},b={...a,x:.4,y:.4};assert(!E.overlaps(a,b));b.x=b.y=.35;assert(E.overlaps(a,b));
+  b.x=E.bodyRadius(a)*2;b.y=0;assert(!E.overlaps(a,b));
+});
+function waitingFixture(){
+  const s=trafficFixture(),requester=trafficWorker(s,8,10),worker=trafficWorker(s,10,10);
+  worker.yieldGoal={x:10,y:10};worker.yieldRequest={id:requester.id,until:s.time+1.8,dest:{x:12,y:10}};
+  return {s,worker,requester};
+}
+test('Only a Worker arriving at its yield position becomes non-solid; other units pass in the same tick',()=>{
+  const {s,worker}=waitingFixture(),unit=addSoldier(s,10.65,10);E.tick(s,.05);
+  assert.equal(worker.waitingNonSolid,'yield');assert(!E.collisionEnabled(worker));assert(E.collisionEnabled(unit));
+  simulateTraffic(s,.5);assert(E.circlesOverlap(worker,unit));assert(!E.overlaps(worker,unit));
+});
+test('A yielding Worker stays solid while travelling and disables collision only after arrival',()=>{
+  const {s,worker}=waitingFixture();worker.yieldGoal={x:10,y:11};E.tick(s,.05);
+  assert(E.collisionEnabled(worker));assert(!worker.waitingNonSolid);
+  simulateTraffic(s,1);assert.equal(worker.waitingNonSolid,'yield');
+});
+test('A waiting Worker restores collision before departure, but waits if another body occupies its position',()=>{
+  const {s,worker}=waitingFixture();E.tick(s,.05);assert(!E.collisionEnabled(worker));
+  const blocker=trafficWorker(s,worker.x,worker.y),pos={x:worker.x,y:worker.y};worker.yieldRequest.until=s.time;
+  simulateTraffic(s,.2);assert(worker.waitingNonSolid);assert.equal(worker.x,pos.x);assert.equal(worker.y,pos.y);
+  s.units=s.units.filter(u=>u!==blocker);E.tick(s,.05);assert(E.collisionEnabled(worker));assert(!worker.waitingNonSolid);assertSeparated(s);
+});
+test('Sheltering Workers remain vulnerable and return to solid state after the threat disappears',()=>{
+  const s=trafficFixture(),worker=trafficWorker(s,10,10);s.tiles[s.keepId].building.cooldown=Infinity;
+  const enemy=goblin(s,10.65,10);enemy.cooldown=0;s.enemies.push(enemy);E.tick(s,.05);
+  assert.equal(worker.waitingNonSolid,'shelter');assert(worker.hp<55);assert(s.enemies.length);
+  s.enemies=[];E.tick(s,.05);assert(E.collisionEnabled(worker));assert(!worker.waitingNonSolid);
+  assert(E.create(42).units.every(u=>!u.waitingNonSolid));
 });
 console.log(`${checks} scenarios passed.`);

@@ -2,8 +2,15 @@
 (function (root) {
   'use strict';
   const SIZE = 20;
-  // Half-width of each visual body in tile units, including animation clearance.
-  const BODY_HALF = Object.freeze({ worker: .44, soldier: .56, goblin: .56, dragon: 1.16 });
+  // Alpha>=128 content bounds of the bundled PNGs; ignore transparent padding.
+  // A simple circle uses the longer visible edge, not a pixel-perfect silhouette.
+  const UNIT_VISUALS=Object.freeze({
+    worker:Object.freeze({size:42,width:127,height:128,bounds:Object.freeze([24,16,95,106])}),
+    soldier:Object.freeze({size:50,width:128,height:127,bounds:Object.freeze([22,24,102,106])}),
+    goblin:Object.freeze({size:50,width:128,height:128,bounds:Object.freeze([12,21,113,109])}),
+    dragon:Object.freeze({size:108,width:192,height:189,bounds:Object.freeze([2,3,190,172])})
+  });
+  const BODY_RADIUS=Object.freeze(Object.fromEntries(Object.entries(UNIT_VISUALS).map(([kind,v])=>[kind,Math.max(v.bounds[2]-v.bounds[0],v.bounds[3]-v.bounds[1])*v.size/Math.max(v.width,v.height)/112])));
   const RAID_RULES = Object.freeze({ first: 90, spread: 60, interval: 60, ambushMultiplier: 2 });
   const BUILDINGS = {
     keep: { name: 'Keep / 王城', hp: 900, cost: {}, time: 0 },
@@ -39,27 +46,31 @@
   const index = (x, y) => y * SIZE + x;
   const xy = id => ({ x: id % SIZE, y: Math.floor(id / SIZE) });
   const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const bodyHalf = u => BODY_HALF[u.kind] || .5;
-  const bodies = s => [...s.units,...s.enemies].filter(u=>u.hp>0);
+  const bodyRadius = u => BODY_RADIUS[u.kind] || .5;
+  const collisionEnabled=u=>u.hp>0&&!(u.kind==='worker'&&u.waitingNonSolid);
+  const bodies = s => [...s.units,...s.enemies].filter(collisionEnabled);
   const collisionContexts=new WeakMap();
   function trackBody(s,u){
     const c=collisionContexts.get(s);if(!c)return;
     const key=`${Math.floor(u.x/2.5)},${Math.floor(u.y/2.5)}`,old=c.keys.get(u);
+    if(!collisionEnabled(u)){if(old)c.grid.get(old)?.delete(u);c.keys.delete(u);return;}
     if(old===key)return;if(old)c.grid.get(old)?.delete(u);
     if(!c.grid.has(key))c.grid.set(key,new Set());c.grid.get(key).add(u);c.keys.set(u,key);
   }
   function nearbyBodies(s,p){
     const c=collisionContexts.get(s);if(!c)return bodies(s);
     const near=[],x=Math.floor(p.x/2.5),y=Math.floor(p.y/2.5);
-    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)for(const u of c.grid.get(`${x+dx},${y+dy}`)||[])if(u.hp>0)near.push(u);
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)for(const u of c.grid.get(`${x+dx},${y+dy}`)||[])if(collisionEnabled(u))near.push(u);
     return near;
   }
-  function overlaps(a,b) { const gap=bodyHalf(a)+bodyHalf(b);return Math.abs(a.x-b.x)<gap-1e-7&&Math.abs(a.y-b.y)<gap-1e-7; }
+  function circlesOverlap(a,b) { return distance(a,b)<bodyRadius(a)+bodyRadius(b)-1e-7; }
+  function overlaps(a,b) { return collisionEnabled(a)&&collisionEnabled(b)&&circlesOverlap(a,b); }
   function canStand(s,u,p) {
-    const h=bodyHalf(u);
+    const h=bodyRadius(u);
     if(p.x<h-.5||p.y<h-.5||p.x>SIZE-.5-h||p.y>SIZE-.5-h)return false;
     if((u.kind==='worker'||u.kind==='soldier')&&!s.tiles[index(Math.round(p.x),Math.round(p.y))]?.revealed)return false;
-    return !nearbyBodies(s,p).some(other=>other!==u&&Math.abs(p.x-other.x)<h+bodyHalf(other)-1e-7&&Math.abs(p.y-other.y)<h+bodyHalf(other)-1e-7);
+    // Also validates a non-solid waiting Worker's position BEFORE restoring it.
+    return !nearbyBodies(s,p).some(other=>other!==u&&distance(p,other)<h+bodyRadius(other)-1e-7);
   }
   function placeBody(s,u,origin) {
     // Deterministic nearby slots; no overlapping fallback when the exit is full.
@@ -69,7 +80,13 @@
     const p=candidates.find(p=>canStand(s,u,p));if(!p)return false;
     u.x=p.x;u.y=p.y;return true;
   }
-  function inMelee(a,b) { const reach=bodyHalf(a)+(b.kind?bodyHalf(b):.5)+.12;return Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y))<=reach; }
+  function inMelee(a,b) { const reach=bodyRadius(a)+(b.kind?bodyRadius(b):.5)+.12;return distance(a,b)<=reach; }
+  function waitWithoutCollision(s,u,reason){u.waitingNonSolid=reason;u.workSpot=null;u.workKey=null;u.movingUntil=0;trackBody(s,u);}
+  function restoreCollision(s,u){
+    if(!u.waitingNonSolid)return true;
+    if(!canStand(s,u,u))return false;
+    u.waitingNonSolid=false;u.yieldGoal=null;u.yieldRequest=null;trackBody(s,u);return true;
+  }
   function start(s) { if(s.result||s.phase!=='ready')return false;s.phase='running';return true; }
   function setBackgroundPaused(s,paused) { if(typeof paused!=='boolean'||s.result)return false;s.backgroundPaused=paused;return true; }
   function neighbors(id, diagonal = true) {
@@ -408,7 +425,7 @@
     }
     const id=index(Math.round(u.yieldGoal.x),Math.round(u.yieldGoal.y));
     // Hold the bay briefly after arrival; immediately returning recreates the jam.
-    move(s,u,[id],u.kind==='worker'?1.8:2.1,dt,u.yieldGoal,.12);
+    if(move(s,u,[id],u.kind==='worker'?1.8:2.1,dt,u.yieldGoal,.12)&&u.kind==='worker')waitWithoutCollision(s,u,'yield');
     return true;
   }
   function moveToWork(s,u,key,centers,dt) {
@@ -434,10 +451,16 @@
   }
   function taskGoals(s, task) { return task.kind === 'explore' ? neighbors(task.tileId, false).filter(id => s.tiles[id].revealed) : [task.tileId]; }
   function updateWorker(s, u, dt) {
+    const threat = nearest(s.enemies.filter(e => e.hp > 0), u),inDanger=threat&&distance(threat,u)<2.2;
+    if(u.waitingNonSolid){
+      const request=u.yieldRequest;
+      if(u.waitingNonSolid==='shelter'&&inDanger)return;
+      if(u.waitingNonSolid==='yield'&&!inDanger&&request?.until>s.time&&s.units.some(a=>a.id===request.id&&a.hp>0))return;
+      if(!restoreCollision(s,u))return; // Never move through another body on exit.
+    }
     let task = s.tasks.find(t => t.id === u.task);
     if (task && preparationStatus(s, task)) { task.workerId = null; u.task = null; task = null; }
-    const threat = nearest(s.enemies.filter(e => e.hp > 0), u);
-    if (threat && distance(threat, u) < 2.2) { move(s, u, [s.keepId], 1.8, dt); return; }
+    if (inDanger) { if(move(s,u,[s.keepId],1.8,dt))waitWithoutCollision(s,u,'shelter');return; }
     if(yieldToWorker(s,u,dt))return;
     if (!task) {
       u.task = null;
@@ -513,6 +536,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { SIZE, BODY_HALF, bodyHalf, overlaps, canStand, placeBody, inMelee, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
