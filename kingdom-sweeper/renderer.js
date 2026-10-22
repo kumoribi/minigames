@@ -141,14 +141,15 @@
       for (const unit of [...world.units, ...world.enemies]) {
         alive.add(unit.id); let view = this.units.get(unit.id);
         if (!view) {
-          const size = SIZES[unit.kind], texture = scene.textures.exists(unit.kind) ? unit.kind : 'ks-missing';
+          const textureKey=E.UNIT_VISUALS[unit.kind].texture||unit.kind;
+          const size = SIZES[unit.kind], texture = scene.textures.exists(textureKey) ? textureKey : 'ks-missing';
           const sprite = scene.add.image(0, 0, texture).setOrigin(.5, .5);
           const visual=E.UNIT_VISUALS[unit.kind];
           if(texture!=='ks-missing')sprite.setOrigin((visual.bounds[0]+visual.bounds[2])/2/visual.width,(visual.bounds[1]+visual.bounds[3])/2/visual.height);
           const scale = Math.min(size / sprite.width, size / sprite.height); sprite.setScale(scale);
           const shadow = scene.add.ellipse(0, 12, size * .6, 12, 0x071c16, .45);
           const hp = scene.add.graphics(), retreat = scene.add.text(0, -size * .65 - 14, '退避', { fontSize: '12px', color: '#ffd0aa', backgroundColor: '#193326' }).setOrigin(.5, 1).setVisible(false);
-          const elite = scene.add.text(0, -size * .65 - 16, '強襲 ×2', {fontSize:'13px',color:'#ffdf9a',backgroundColor:'#631c24'}).setOrigin(.5,1).setVisible(Boolean(unit.empowered));
+          const elite = scene.add.text(0, -size * .65 - 16, unit.kind==='miniDragon'?'ミニドラゴン':'強襲 ×2', {fontSize:'13px',color:'#ffdf9a',backgroundColor:'#631c24'}).setOrigin(.5,1).setVisible(Boolean(unit.empowered)||unit.kind==='miniDragon');
           const container = scene.add.container(0, 0, [shadow, sprite, hp, retreat, elite]);
           view = { container, sprite, shadow, hp, retreat, size, scale, kind: unit.kind, x: unit.x, y: unit.y, pose: { kick: 0 }, lastHit: -1000 };
           this.units.set(unit.id, view);
@@ -162,10 +163,10 @@
         view.sprite.setY(bob).setAngle(quiet ? 0 : (walking ? Math.sin(phase) * 3 : 0) + view.pose.kick);
         if (walking && Math.abs(dx) > .0001) view.sprite.setFlipX(dx < 0);
         view.hp.clear();
-        if (unit.hp < unit.maxHp || unit.kind === 'dragon' || unit.empowered) {
+        if (unit.hp < unit.maxHp || E.isDragon(unit) || unit.empowered) {
           const width = unit.kind === 'dragon' ? 64 : unit.kind === 'worker' ? 38 : 44, y = -view.size * .65 - 8;
           view.hp.fillStyle(0x251b16).fillRect(-width / 2, y, width, 5);
-          view.hp.fillStyle(unit.kind === 'goblin' || unit.kind === 'dragon' ? 0xfa7265 : 0xa5e28c).fillRect(-width / 2, y, width * Math.max(0, Math.min(1, unit.hp / unit.maxHp)), 5);
+          view.hp.fillStyle(unit.kind === 'goblin' || E.isDragon(unit) ? 0xfa7265 : 0xa5e28c).fillRect(-width / 2, y, width * Math.max(0, Math.min(1, unit.hp / unit.maxHp)), 5);
         }
         view.retreat.setText(unit.waitingNonSolid?'待避・待機':'退避').setVisible(unit.kind === 'worker' && (Boolean(unit.waitingNonSolid)||world.enemies.some(e => Math.hypot(e.x - unit.x, e.y - unit.y) < 2.2)));
         view.sprite.setAlpha(unit.waitingNonSolid?.55:1);
@@ -225,8 +226,9 @@
       if (!Number.isFinite(x) || !Number.isFinite(y) || !this.visible(x, y)) return;
       const burst = (kind, count) => { if (!quiet) this.emitters[kind].explode(count, x, y); };
       if (effect.kind === 'hit') {
+        const dragonAttack=effect.source==='dragon'||effect.source==='miniDragon';
         const fromX = (effect.fromX + .5) * CELL, fromY = (effect.fromY + .5) * CELL;
-        const color = effect.source === 'dragon' ? 0xff8e45 : effect.source === 'goblin' ? 0xef9981 : 0xffe69e;
+        const color = dragonAttack ? 0xff8e45 : effect.source === 'goblin' ? 0xef9981 : 0xffe69e;
         const victims = effect.targetType!=='building'&&this.units.has(effect.targetId) ? [this.units.get(effect.targetId)] : [];
         if (!quiet) for (const victim of victims) if (scene.time.now - victim.lastHit > 600) {
           victim.lastHit = scene.time.now; victim.sprite.setTint(0xe8c6a4);
@@ -234,24 +236,24 @@
         }
         const attacker = this.units.get(effect.sourceId);
         if (attacker?.kind === effect.source && !quiet) {
-          scene.tweens.killTweensOf(attacker.pose); attacker.pose.kick = effect.source === 'dragon' ? -7 : -12;
+          scene.tweens.killTweensOf(attacker.pose); attacker.pose.kick = dragonAttack ? -7 : -12;
           scene.tweens.add({ targets: attacker.pose, kick: 0, duration: 260, ease: 'Back.Out' });
         }
-        if (!quiet && (effect.source === 'tower' || effect.source === 'keep' || effect.source === 'dragon')) {
-          const projectile = scene.add.image(fromX, fromY, 'ks-spark').setTint(color).setScale(effect.source === 'dragon' ? 1.7 : .7).setDepth(6500);
+        if (!quiet && (effect.source === 'tower' || effect.source === 'keep' || dragonAttack)) {
+          const projectile = scene.add.image(fromX, fromY, 'ks-spark').setTint(color).setScale(dragonAttack ? 1.7 : .7).setDepth(6500);
           this.own(projectile, 170, { x, y, alpha: .2, ease: 'Quad.In' });
         }
-        const slash = scene.add.graphics().setPosition(x, y).setDepth(6501).lineStyle(effect.source === 'dragon' ? 5 : 3, color, .85);
+        const slash = scene.add.graphics().setPosition(x, y).setDepth(6501).lineStyle(dragonAttack ? 5 : 3, color, .85);
         if (quiet) slash.strokeCircle(0, 0, 13);
-        else slash.beginPath().arc(0, 0, effect.source === 'dragon' ? 29 : 20, -2.6, .3).strokePath();
+        else slash.beginPath().arc(0, 0, dragonAttack ? 29 : 20, -2.6, .3).strokePath();
         this.own(slash, quiet ? 160 : 280, quiet ? {} : { angle: 32 });
-        burst(effect.source === 'dragon' ? 'fire' : 'gold', effect.source === 'dragon' ? 12 : 5);
+        burst(dragonAttack ? 'fire' : 'gold', dragonAttack ? 12 : 5);
       } else if (effect.kind === 'push' || effect.kind === 'dragon-emerge') {
-        const emerging=effect.kind==='dragon-emerge',radius=emerging?52:14;
+        const emerging=effect.kind==='dragon-emerge',radius=emerging?(effect.mini?32:52):14;
         const ring=scene.add.graphics().setPosition(x,y).setDepth(6501).lineStyle(emerging?4:2,0xffc07a,.8).strokeCircle(0,0,radius);
         this.own(ring,quiet?160:emerging?650:300,quiet?{}:{scaleX:1.5,scaleY:1.5});
         burst('dust',emerging?28:5);
-        if(emerging){burst('fire',18);this.label(x,y-65,'Dragon 出現！','#ffb296',quiet,1000);}
+        if(emerging){burst('fire',18);this.label(x,y-(effect.mini?45:65),effect.mini?'ミニドラゴン出現！':'Dragon 出現！','#ffb296',quiet,1000);}
       } else if (effect.kind === 'conquest') {
         burst('gold',24);this.label(x,y-35,'拠点制圧！ 食30・木30・金15','#ffe69e',quiet,1100);
       } else if (effect.kind === 'destroy') {

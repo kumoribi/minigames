@@ -8,11 +8,14 @@
     worker:Object.freeze({size:42,width:127,height:128,bounds:Object.freeze([24,16,95,106])}),
     soldier:Object.freeze({size:50,width:128,height:127,bounds:Object.freeze([22,24,102,106])}),
     goblin:Object.freeze({size:50,width:128,height:128,bounds:Object.freeze([12,21,113,109])}),
-    dragon:Object.freeze({size:108,width:192,height:189,bounds:Object.freeze([2,3,190,172])})
+    dragon:Object.freeze({size:108,width:192,height:189,bounds:Object.freeze([2,3,190,172])}),
+    miniDragon:Object.freeze({size:64.8,width:192,height:189,bounds:Object.freeze([2,3,190,172]),texture:'dragon'})
   });
   const BODY_RADIUS=Object.freeze(Object.fromEntries(Object.entries(UNIT_VISUALS).map(([kind,v])=>[kind,Math.max(v.bounds[2]-v.bounds[0],v.bounds[3]-v.bounds[1])*v.size/Math.max(v.width,v.height)/112*(kind==='soldier'?.8:1)])));
   const RAID_RULES = Object.freeze({ first: 90, spread: 60, interval: 60, ambushMultiplier: 2 });
   const CAMP_REWARD=Object.freeze({food:30,wood:30,gold:15});
+  const isDragon=u=>u.kind==='dragon'||u.kind==='miniDragon';
+  const enemySpeed=u=>u.kind==='miniDragon'?1.2:u.kind==='dragon'?1:1.35;
   const BUILDINGS = {
     keep: { name: 'Keep / 王城', hp: 900, cost: {}, time: 0 },
     farm: { name: 'Farm / 農場', hp: 160, cost: { wood: 30 }, time: 5 },
@@ -92,7 +95,7 @@
     if(!validGround(s,u,p))return false;
     const h=bodyRadius(u);
     // Reserve an emerging Dragon's circle, while allowing units inside to leave.
-    if((u.kind==='worker'||u.kind==='soldier')&&s.pendingSpawns.some(q=>q.enemy.kind==='dragon'&&distance(p,q.origin)<h+bodyRadius(q.enemy)&&distance(p,q.origin)<distance(u,q.origin)-1e-7))return false;
+    if((u.kind==='worker'||u.kind==='soldier')&&s.pendingSpawns.some(q=>isDragon(q.enemy)&&distance(p,q.origin)<h+bodyRadius(q.enemy)&&distance(p,q.origin)<distance(u,q.origin)-1e-7))return false;
     // Also validates a non-solid waiting Worker's position BEFORE restoring it.
     return !nearbyBodies(s,p).some(other=>other!==u&&distance(p,other)<h+bodyRadius(other)-1e-7);
   }
@@ -145,7 +148,7 @@
     }
     if(!canStand(s,dragon,origin))return false;
     dragon.x=origin.x;dragon.y=origin.y;
-    s.effects.push({kind:'dragon-emerge',...origin,life:.8});return true;
+    s.effects.push({kind:'dragon-emerge',mini:dragon.kind==='miniDragon',...origin,life:.8});return true;
   }
   function placeBody(s,u,origin) {
     // Deterministic nearby slots; no overlapping fallback when the exit is full.
@@ -362,14 +365,14 @@
   }
   function spawn(s, kind, tile, count = 1, empowered = false, rewardCampId = null) {
     for (let i = 0; i < count; i++) {
-      const boss = kind === 'dragon';
+      const boss = kind === 'dragon',mini=kind==='miniDragon',dragonLike=boss||mini;
       const multiplier = empowered ? RAID_RULES.ambushMultiplier : 1;
-      const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp: (boss ? 1200 : 48) * multiplier, maxHp: (boss ? 1200 : 48) * multiplier, attack: (boss ? 28 : 7) * multiplier, cooldown: 1.5, empowered };
+      const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp: (boss ? 1200 : mini ? 300 : 48) * multiplier, maxHp: (boss ? 1200 : mini ? 300 : 48) * multiplier, attack: (boss ? 28 : mini ? 14 : 7) * multiplier, cooldown: 1.5, empowered };
       if(rewardCampId!==null)enemy.rewardCampId=rewardCampId;
       scaleEnemy(enemy,enemyMultiplier(s));
-      const h=bodyRadius(enemy),origin=boss?{x:Math.max(h-.5,Math.min(SIZE-.5-h,tile.x)),y:Math.max(h-.5,Math.min(SIZE-.5-h,tile.y))}:{x:tile.x,y:tile.y};
-      if(boss?canStand(s,enemy,origin):placeBody(s,enemy,tile)){
-        if(boss){enemy.x=origin.x;enemy.y=origin.y;s.effects.push({kind:'dragon-emerge',...origin,life:.8});}
+      const h=bodyRadius(enemy),origin=dragonLike?{x:Math.max(h-.5,Math.min(SIZE-.5-h,tile.x)),y:Math.max(h-.5,Math.min(SIZE-.5-h,tile.y))}:{x:tile.x,y:tile.y};
+      if(dragonLike?canStand(s,enemy,origin):placeBody(s,enemy,tile)){
+        if(dragonLike){enemy.x=origin.x;enemy.y=origin.y;s.effects.push({kind:'dragon-emerge',mini,...origin,life:.8});}
         s.enemies.push(enemy);trackBody(s,enemy);
       }else s.pendingSpawns.push({enemy,origin});
     }
@@ -399,6 +402,7 @@
       log(s,prepared?'拠点攻略開始。通常部隊を迎撃！':'奇襲失敗！HP・攻撃2倍の強化部隊が出現！','danger');
     }
     else if (tile.terrain === 'chest') { s.resources.gold += 35; s.resources.wood += 20; s.resources.food += 20; tile.terrain = 'grass'; s.pendingRewards.push({ id: s.nextId++, tileId: id }); log(s, '宝箱発見！資源を獲得。3つの報酬から1つ選ぼう。', 'reward'); }
+    if(prepared&&tile.danger===0){spawn(s,'miniDragon',tile);log(s,'誤旗を攻略！ミニドラゴン出現。領土倍率が適用され、倒しても拠点戦利品・勝利にはなりません。','danger');}
     s.effects.push({ kind: 'reveal', x: tile.x, y: tile.y, life: .8 });
     if(s.autoZero&&tile.clue===0)queueSafeNeighbors(s,id,{automatic:true});
   }
@@ -441,7 +445,7 @@
     }
   }
   function move(s, u, goals, speed, dt, point = null, tolerance = null) {
-    const route = path(s, u, goals, u.kind === 'goblin' || u.kind === 'dragon'); if (!route) return false;
+    const route = path(s, u, goals, u.kind === 'goblin' || isDragon(u)); if (!route) return false;
     let dest = route.length ? s.tiles[route[0]] : point || s.tiles[goals.find(id => distance(s.tiles[id], u) < .8) ?? goals[0]];
     if (!dest) return false;
     const arrival=tolerance??(u.kind==='worker'?.72:.18);
@@ -466,7 +470,7 @@
       let moved=false;
       for(const turn of [0,.45*sign,-.45*sign,.9*sign,-.9*sign,1.35*sign,-1.35*sign]){
         const p={x:u.x+Math.cos(angle+turn)*step,y:u.y+Math.sin(angle+turn)*step};
-        if(canStand(s,u,p)||(u.kind==='dragon'&&validGround(s,u,p)&&pushBodies(s,u,p))){u.x=p.x;u.y=p.y;trackBody(s,u);moved=true;break;}
+        if(canStand(s,u,p)||(isDragon(u)&&validGround(s,u,p)&&pushBodies(s,u,p))){u.x=p.x;u.y=p.y;trackBody(s,u);moved=true;break;}
       }
       u.blocked=moved?0:(u.blocked||0)+dt;
       if(!moved&&u.blocked>.6){
@@ -674,14 +678,14 @@
       if (u.hp > 0) (u.kind === 'worker' ? updateWorker : updateSoldier)(s, u, dt);
     }
     updateRaids(s);
-    s.pendingSpawns=s.pendingSpawns.filter(p=>{if(!(p.enemy.kind==='dragon'?emergeDragon(s,p,dt):placeBody(s,p.enemy,p.origin)))return true;s.enemies.push(p.enemy);trackBody(s,p.enemy);return false;});
+    s.pendingSpawns=s.pendingSpawns.filter(p=>{if(!(isDragon(p.enemy)?emergeDragon(s,p,dt):placeBody(s,p.enemy,p.origin)))return true;s.enemies.push(p.enemy);trackBody(s,p.enemy);return false;});
     for (const e of s.enemies) if (e.hp > 0) {
       e.cooldown = Math.max(0, e.cooldown - dt);
       const target=enemyTarget(s,e);
       if (inMelee(e,target)) {
-        if (!e.cooldown) { hitEnemyTarget(s,target,e);e.cooldown=e.kind==='dragon'?1.4:1.1; }
-        if(e.kind==='dragon'&&!target.building&&collisionEnabled(target))move(s,e,[index(Math.round(target.x),Math.round(target.y))],1,dt,target,0);
-      } else { const id = index(Math.max(0, Math.min(19, Math.round(target.x))), Math.max(0, Math.min(19, Math.round(target.y)))); move(s, e, [id], e.kind === 'dragon' ? 1 : 1.35, dt); }
+        if (!e.cooldown) { hitEnemyTarget(s,target,e);e.cooldown=isDragon(e)?1.4:1.1; }
+        if(isDragon(e)&&!target.building&&collisionEnabled(target))move(s,e,[index(Math.round(target.x),Math.round(target.y))],enemySpeed(e),dt,target,0);
+      } else { const id = index(Math.max(0, Math.min(19, Math.round(target.x))), Math.max(0, Math.min(19, Math.round(target.y)))); move(s, e, [id], enemySpeed(e), dt); }
     }
     // Evaluate after enemy attacks: a Soldier cannot heal immediately before a hit.
     if(s.tiles[s.keepId].building.hp>0&&!s.enemies.some(e=>e.kind==='dragon'&&e.hp<=0))for(const u of s.units)if(u.kind==='soldier'&&u.hp>0&&!s.enemies.some(e=>e.hp>0&&inMelee(u,e))){
@@ -697,6 +701,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { isDragon, CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

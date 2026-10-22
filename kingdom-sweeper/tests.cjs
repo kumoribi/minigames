@@ -833,4 +833,58 @@ test('Ready/background/result suspension cannot settle camp loot or change resou
     Engine.tick(s,.05);assert.deepEqual(s.resources,resources);assert(!s.tiles[id].campReward.claimed);
   }
 });
+function falseFlagAttack(s,x=5,y=5){const id=E.index(x,y),t=s.tiles[id];t.revealed=false;t.danger=0;t.flag=true;t.terrain='grass';Engine.reveal(s,id,{assault:true});return {id,enemy:s.enemies.find(e=>e.kind==='miniDragon')||s.pendingSpawns.find(p=>p.enemy.kind==='miniDragon')?.enemy};}
+test('False-flag assault spawns exactly one mini Dragon, not a boss or eligible conquest',()=>{
+  const s=pushFixture(),{id,enemy}=falseFlagAttack(s);assert(enemy);assert.equal(enemy.kind,'miniDragon');assert.equal(enemy.hp,300);assert.equal(enemy.maxHp,300);assert.equal(enemy.attack,14);
+  assert(!s.dragonAwake);assert.equal(Engine.campRewardStatus(s,id),null);assert.equal(s.enemies.length+s.pendingSpawns.length,1);assert(s.tiles[id].revealed);assert(!s.tiles[id].flag);
+  Engine.reveal(s,id,{assault:true});assert.equal(s.enemies.length+s.pendingSpawns.length,1);
+  assert(Math.abs(Engine.UNIT_VISUALS.miniDragon.size/Engine.UNIT_VISUALS.dragon.size-.6)<1e-10);assert(Math.abs(Engine.BODY_RADIUS.miniDragon/Engine.BODY_RADIUS.dragon-.6)<1e-10);assert.equal(Engine.UNIT_VISUALS.miniDragon.texture,'dragon');
+});
+test('Mini Dragon territory growth reaches HP1500/attack70 and preserves wounded HP fraction',()=>{
+  const s=growthFixture(9),{enemy}=falseFlagAttack(s,5,5),factor=Engine.enemyMultiplier(s);assert(Math.abs(enemy.maxHp-300*factor)<1e-8);enemy.hp=enemy.maxHp/2;
+  s.tiles.forEach(t=>t.revealed=true);Engine.tick(s,.05);assert(Math.abs(enemy.maxHp-1500)<1e-8);assert(Math.abs(enemy.hp-750)<1e-8);assert(Math.abs(enemy.attack-70)<1e-8);
+});
+test('A flag alone, a normal safe opening and a correct camp/boss assault do not produce mini Dragons',()=>{
+  for(const [danger,flag,assault] of [[0,false,false],[0,true,false],[0,false,true],[1,true,true],[3,true,true]]){
+    const s=pushFixture(),t=s.tiles[E.index(5,5)];t.revealed=false;t.danger=danger;t.flag=flag;
+    assert.equal(s.enemies.length,0);Engine.reveal(s,t.id,{assault});assert(!s.enemies.some(e=>e.kind==='miniDragon'));assert(!s.pendingSpawns.some(p=>p.enemy.kind==='miniDragon'));
+  }
+  const s=pushFixture(),t=s.tiles[E.index(5,5)];t.revealed=false;assert(Engine.setFlag(s,t.id));Engine.tick(s,.05);assert.equal(s.enemies.length,0);
+});
+test('False-flag mini Dragons preserve chest rewards, resource terrain and fixed minesweeper clues',()=>{
+  for(const terrain of ['chest','forest','food','mine']){
+    const s=pushFixture(),t=s.tiles[E.index(5,5)];t.revealed=false;t.flag=true;t.terrain=terrain;t.amount=123;const clues=s.tiles.map(t=>t.clue);
+    Engine.reveal(s,t.id,{assault:true});assert(s.enemies.some(e=>e.kind==='miniDragon'));assert.deepEqual(s.tiles.map(t=>t.clue),clues);assert.equal(t.amount,123);
+    if(terrain==='chest'){assert.equal(s.pendingRewards.length,1);assert.equal(s.resources.gold,35);assert.equal(t.terrain,'grass');}else{assert.equal(t.terrain,terrain);assert.equal(s.pendingRewards.length,0);}
+  }
+});
+test('Mini Dragon emergence and melee push Soldiers without overlap or additional damage',()=>{
+  const s=pushFixture(),u=soldier(s,5,5);u.cooldown=Infinity;s.units=[u];const {enemy}=falseFlagAttack(s);assert.equal(s.pendingSpawns.length,1);
+  enemy.cooldown=Infinity;simulateTraffic(s,3);assert.equal(s.pendingSpawns.length,0);assert(s.enemies.includes(enemy));assert(u.lastPushEffectAt!=null);assert.equal(u.hp,110);
+  const t=pushFixture(),a=soldier(t,5+Engine.BODY_RADIUS.soldier+Engine.BODY_RADIUS.miniDragon+.05,5);a.cooldown=Infinity;t.units=[a];const m=falseFlagAttack(t).enemy;m.cooldown=Infinity;
+  const x=a.x;simulateTraffic(t,1);assert(a.x>x+.3);assert.equal(a.hp,110);assert(m.x>5.3);
+});
+test('Mini Dragon moves at speed1.2, attacks at 1.4-second intervals and targets Towers',()=>{
+  const s=pushFixture(),m=falseFlagAttack(s,4,10).enemy;Engine.tick(s,.1);assert(Math.abs(Math.hypot(m.x-4,m.y-10)-.12)<1e-8);
+  const t=pushFixture(),tower=t.tiles[E.index(5,5)];tower.building=fixtureBuilding('tower');tower.building.cooldown=Infinity;
+  const mini=falseFlagAttack(t,5,4).enemy;assert.equal(Engine.enemyTarget(t,mini),tower);mini.cooldown=0;
+  stepExact(t,.5);assert.equal(tower.building.hp,286);stepExact(t,1.1);assert.equal(tower.building.hp,272);assertSeparated(t);
+});
+test('Killing mini Dragons awards only Gold6 and never wins or prevents the real Dragon victory',()=>{
+  const s=pushFixture(),{enemy}=falseFlagAttack(s);enemy.hp=0;Engine.tick(s,.05);assert.equal(s.resources.gold,6);assert.equal(s.kills,1);assert.equal(s.result,null);assert(!s.dragonAwake);
+  assert(!s.events.some(e=>e.text.includes('追加戦利品')));const boss=awakenAt(s,8,8);assert.equal(boss.kind,'dragon');boss.hp=0;Engine.tick(s,.05);assert.equal(s.result,'victory');assert.equal(s.resources.gold,156);
+});
+test('Queued and prepared false-flag assaults both produce one mini Dragon via actual Worker work',()=>{
+  for(const prepared of [false,true]){
+    const s=pushFixture(),id=E.index(8,10);s.tiles[id].revealed=false;assert(Engine.setFlag(s,id));trafficWorker(s,10,10);
+    if(prepared){Engine.setArmyMode(s,'defend');addSoldier(s,10,11);assert(Engine.queuePreparedExplore(s,id,1));}else assert(Engine.queueAssault(s,id));
+    simulateTraffic(s,6);assert(s.tiles[id].revealed);assert.equal(s.enemies.filter(e=>e.kind==='miniDragon').length+s.pendingSpawns.filter(p=>p.enemy.kind==='miniDragon').length,1);assert.equal(s.result,null);
+  }
+});
+test('Mini Dragon spawning respects suspension and edges; blocked fog waits rather than overlapping',()=>{
+  const s=pushFixture(),u=soldier(s,5,5);u.cooldown=Infinity;s.units=[u];s.tiles.forEach(t=>t.revealed=t.id===E.index(5,5));falseFlagAttack(s);
+  Engine.setBackgroundPaused(s,true);const p={x:u.x,y:u.y};stepExact(s,1);assert.deepEqual({x:u.x,y:u.y},p);assert.equal(s.pendingSpawns.length,1);Engine.setBackgroundPaused(s,false);
+  simulateTraffic(s,2);assert.equal(s.pendingSpawns.length,1);assert.equal(Math.round(u.x),5);assert.equal(Math.round(u.y),5);
+  const t=pushFixture();falseFlagAttack(t,0,0);simulateTraffic(t,1);assertSeparated(t);
+});
 console.log(`${checks} scenarios passed.`);
