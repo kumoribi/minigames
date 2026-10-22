@@ -596,7 +596,30 @@
   }
   function updateSoldier(s, u, dt) {
     const rally = s.tiles[s.rally], defending = s.armyMode === 'defend';
-    const enemy = nearest(s.enemies.filter(e => e.hp > 0 && (!defending || distance(e, rally) <= s.defenseRadius || inMelee(e,u))), u);
+    const candidates=s.enemies.filter(e=>e.hp>0&&(!defending||distance(e,rally)<=s.defenseRadius||inMelee(e,u)));
+    u.targetRetry??={};
+    for(const id of Object.keys(u.targetRetry))if(u.targetRetry[id]<=s.time||!s.enemies.some(e=>e.id===Number(id)&&e.hp>0))delete u.targetRetry[id];
+    const reachable=e=>{
+      const id=index(Math.round(e.x),Math.round(e.y));
+      return s.tiles[id]?.revealed&&path(s,u,[id])!==null;
+    };
+    // Contact is actionable even during attack cooldown or a previous exclusion.
+    let enemy=nearest(candidates.filter(e=>inMelee(u,e)),u);
+    if(!enemy){
+      const current=candidates.find(e=>e.id===u.combatTarget&&!u.targetRetry[e.id]&&reachable(e));
+      enemy=current||[...candidates].sort((a,b)=>distance(a,u)-distance(b,u)||a.id-b.id).find(e=>!u.targetRetry[e.id]&&reachable(e));
+    }
+    if(enemy&&!inMelee(u,enemy)){
+      const d=distance(u,enemy);
+      if(u.targetProgress?.id!==enemy.id)u.targetProgress={id:enemy.id,bestDistance:d,lastProgressAt:s.time};
+      else if(d<u.targetProgress.bestDistance-.1){u.targetProgress.bestDistance=d;u.targetProgress.lastProgressAt=s.time;}
+      else if(s.time-u.targetProgress.lastProgressAt>=2){
+        u.targetRetry[enemy.id]=s.time+3;u.targetProgress=null;u.detour=null;u.navKey=null;
+        enemy=[...candidates].sort((a,b)=>distance(a,u)-distance(b,u)||a.id-b.id).find(e=>!u.targetRetry[e.id]&&reachable(e));
+        if(enemy)u.targetProgress={id:enemy.id,bestDistance:distance(u,enemy),lastProgressAt:s.time};
+      }
+    }else u.targetProgress=null;
+    u.combatTarget=enemy?.id??null;
     u.cooldown = Math.max(0, u.cooldown - dt);
     if(!enemy&&yieldToWorker(s,u,dt))return;
     if (defending && distance(u, rally) > s.defenseRadius && (!enemy || !inMelee(u,enemy))) { moveToRally(s,u,dt); return; }

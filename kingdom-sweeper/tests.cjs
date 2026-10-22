@@ -703,4 +703,44 @@ test('Combined production growth, smaller bodies and recovery retain separation 
     assert(s.units.every(u=>u.hp>0&&u.hp<=u.maxHp));
   }
 });
+test('Soldiers skip a nearer disconnected or hidden enemy and advance toward a reachable alternative',()=>{
+  for(const hidden of [false,true]){
+    const s=pushFixture(),u=soldier(s,5,5),near=goblin(s,5,3),far=goblin(s,8,5);
+    s.tiles.forEach(t=>t.revealed=t.y===5||(!hidden&&t.id===E.index(5,3)));
+    s.units=[u];s.enemies=[near,far];near.cooldown=far.cooldown=Infinity;
+    Engine.tick(s,.05);assert.equal(u.combatTarget,far.id);assert(u.x>5);assert.equal(Object.keys(u.targetRetry).length,0);assertSeparated(s);
+  }
+});
+function surroundedTarget(){
+  const s=pushFixture(),u=soldier(s,5,5),near=goblin(s,8,5),far=goblin(s,5,13);s.units=[u];s.enemies=[near,far];
+  near.cooldown=far.cooldown=Infinity;
+  const guards=[];for(let i=0;i<8;i++){const a=soldier(s,8+Math.cos(i*Math.PI/4)*.64,5+Math.sin(i*Math.PI/4)*.64);a.cooldown=Infinity;guards.push(a);s.units.push(a);}
+  assertSeparated(s);return {s,u,near,far,guards};
+}
+test('A crowded target is temporarily excluded after two seconds without progress; Soldier fights another enemy',()=>{
+  const {s,u,near,far}=surroundedTarget();let selectedAlternative=false,attackedAlternative=false;
+  simulateTraffic(s,8,()=>{selectedAlternative||=u.combatTarget===far.id&&u.targetRetry[near.id]>s.time;attackedAlternative||=s.effects.some(e=>e.sourceId===u.id&&e.targetId===far.id&&e.source==='soldier');});
+  assert(selectedAlternative);assert(attackedAlternative);
+});
+test('Temporary exclusions expire and the original target can be attacked after the obstruction clears',()=>{
+  const {s,u,near,far,guards}=surroundedTarget();let until=null;
+  for(let i=0;i<120&&!until;i++){Engine.tick(s,.05);assertSeparated(s);until=u.targetRetry[near.id];}
+  assert(until);assert(Math.abs(until-s.time-3)<1e-8);far.hp=0;
+  while(s.time<until+.05){Engine.tick(s,.05);assertSeparated(s);}
+  assert(!u.targetRetry[near.id]);s.units=s.units.filter(a=>!guards.includes(a));let attacked=false;
+  simulateTraffic(s,5,()=>{attacked||=s.effects.some(e=>e.sourceId===u.id&&e.targetId===near.id&&e.source==='soldier');});assert(attacked);
+});
+test('Contact cooldown never triggers retargeting, and immediate self-defense overrides an old exclusion',()=>{
+  const s=pushFixture(),u=soldier(s,5,5),e=goblin(s,5.6,5);s.units=[u];s.enemies=[e];u.cooldown=e.cooldown=Infinity;
+  u.targetRetry={[e.id]:100};simulateTraffic(s,5);assert.equal(u.combatTarget,e.id);assert(!u.targetProgress);assert.equal(u.targetRetry[e.id],100);
+  assert.equal(u.hp,110);assert.equal(e.hp,48);
+});
+test('With no reachable enemy Soldiers return to rally instead of waiting on a hidden target',()=>{
+  const s=pushFixture(),u=soldier(s,5,5),e=goblin(s,5,3);s.units=[u];s.enemies=[e];s.tiles[E.index(5,3)].revealed=false;
+  const before=Math.hypot(u.x-10,u.y-10);Engine.tick(s,.05);assert.equal(u.combatTarget,null);assert(Math.hypot(u.x-10,u.y-10)<before);assertSeparated(s);
+});
+test('Retargeting retains defense bounds and clears exclusions for dead enemies',()=>{
+  const s=pushFixture(),u=soldier(s,10,10),far=goblin(s,17,10);s.units=[u];s.enemies=[far];Engine.setArmyMode(s,'defend');
+  u.targetRetry={[far.id]:100};Engine.tick(s,.05);assert.equal(u.combatTarget,null);assert.equal(u.x,10);far.hp=0;Engine.tick(s,.05);assert(!u.targetRetry[far.id]);
+});
 console.log(`${checks} scenarios passed.`);
