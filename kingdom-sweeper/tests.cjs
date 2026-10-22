@@ -743,4 +743,44 @@ test('Retargeting retains defense bounds and clears exclusions for dead enemies'
   const s=pushFixture(),u=soldier(s,10,10),far=goblin(s,17,10);s.units=[u];s.enemies=[far];Engine.setArmyMode(s,'defend');
   u.targetRetry={[far.id]:100};Engine.tick(s,.05);assert.equal(u.combatTarget,null);assert.equal(u.x,10);far.hp=0;Engine.tick(s,.05);assert(!u.targetRetry[far.id]);
 });
+test('Clear all exploration cancels automatic/manual/assault/prepared work while preserving construction, training and resources',()=>{
+  const s=Engine.create(42),manual=E.index(3,3),assault=E.index(4,4),prepared=E.index(8,10),build=E.index(9,9);
+  assert(Engine.queueExplore(s,manual));s.tiles[assault].flag=true;assert(Engine.queueAssault(s,assault));
+  assert(Engine.setFlag(s,prepared));assert(Engine.setArmyMode(s,'defend'));assert(Engine.queuePreparedExplore(s,prepared,1));
+  s.tiles[build].terrain='grass';assert(Engine.queueBuild(s,build,'farm').ok);assert(Engine.train(s,s.keepId,'worker').ok);
+  const construction=s.tasks.find(q=>q.kind==='build'),jobs=s.tasks.filter(q=>q.kind==='explore'),assigned=jobs[0],worker=s.units[0];
+  assigned.workerId=worker.id;worker.task=assigned.id;assigned.remaining=1;
+  const resources={...s.resources},training=JSON.stringify(s.tiles[s.keepId].building.train),revealed=s.tiles.filter(t=>t.revealed).length;
+  assert.equal(Engine.cancelAllExploration(s),jobs.length);assert.deepEqual(s.tasks,[construction]);assert.equal(worker.task,null);
+  assert.deepEqual(s.resources,resources);assert.equal(JSON.stringify(s.tiles[s.keepId].building.train),training);assert.equal(s.tiles.filter(t=>t.revealed).length,revealed);
+  assert(jobs.every(q=>s.tiles[q.tileId].autoExploreSuppressed));assert(s.tiles[assault].flag);assert(s.tiles[prepared].flag);assert.equal(Engine.cancelAllExploration(s),0);
+});
+test('Bulk zero reservations union visible zero neighbors, excluding flags, revealed cells and duplicates',()=>{
+  const s=Engine.create(42);Engine.cancelAllExploration(s);const flagged=E.index(8,8);s.tiles[flagged].flag=true;
+  const expected=new Set(s.tiles.filter(t=>t.revealed&&t.clue===0).flatMap(t=>Engine.neighbors(t.id)).filter(id=>!s.tiles[id].revealed&&!s.tiles[id].flag));
+  const revealed=s.tiles.filter(t=>t.revealed).length;assert.equal(Engine.queueAllZeroNeighbors(s),expected.size);
+  assert.deepEqual(new Set(s.tasks.map(q=>q.tileId)),expected);assert(s.tasks.every(q=>!q.automatic&&q.remaining===3&&!q.workerId&&!s.tiles[q.tileId].autoExploreSuppressed));
+  assert.equal(Engine.queueAllZeroNeighbors(s),0);assert.equal(s.tiles.filter(t=>t.revealed).length,revealed);assert.equal(s.phase,'ready');
+});
+test('Bulk zero reads no hidden clue or danger, and cannot reserve from a hidden zero alone',()=>{
+  const s=autoFixture();for(const t of s.tiles)if(!t.revealed){Object.defineProperty(t,'clue',{get(){throw Error('Read hidden clue');}});Object.defineProperty(t,'danger',{get(){throw Error('Read hidden danger');}});}
+  const before=s.tasks.length;assert(Engine.queueAllZeroNeighbors(s)>0);assert(s.tasks.length>before);
+  const noZero=autoFixture();noZero.tiles.forEach(t=>{if(t.revealed)t.clue=1;});assert.equal(Engine.queueAllZeroNeighbors(noZero),0);assert.equal(noZero.tasks.length,0);
+});
+test('Clear suppression survives later zero discoveries, and explicit bulk zero restores eligible cancelled jobs',()=>{
+  const s=Engine.create(42),cancelled=s.tasks.map(q=>q.tileId);assert(cancelled.length);Engine.cancelAllExploration(s);
+  const next=cancelled[0];Engine.reveal(s,next);assert(s.tasks.every(q=>!cancelled.includes(q.tileId)));
+  Engine.queueAllZeroNeighbors(s);assert(s.tasks.some(q=>cancelled.includes(q.tileId)));assert(s.tasks.every(q=>!q.automatic||!cancelled.includes(q.tileId)));
+});
+test('Bulk zero reservations require real Worker movement and three-second work, then chain normally',()=>{
+  const s=Engine.create(42);Engine.cancelAllExploration(s);assert(Engine.queueAllZeroNeighbors(s)>0);Engine.start(s);
+  simulateTraffic(s,2);assert.equal(s.tiles.filter(t=>t.revealed).length,9);
+  simulateTraffic(s,10);assert(s.tiles.filter(t=>t.revealed).length>9);assert(s.tiles.filter(t=>t.revealed).every(t=>t.danger===0));assertSeparated(s);
+});
+test('Both bulk operations are result-locked and preserve task/Worker state after victory or defeat',()=>{
+  for(const result of ['victory','defeat']){
+    const s=Engine.create(42);s.result=result;const tasks=JSON.stringify(s.tasks),units=JSON.stringify(s.units);
+    assert.equal(Engine.cancelAllExploration(s),0);assert.equal(Engine.queueAllZeroNeighbors(s),0);assert.equal(JSON.stringify(s.tasks),tasks);assert.equal(JSON.stringify(s.units),units);
+  }
+});
 console.log(`${checks} scenarios passed.`);

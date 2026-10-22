@@ -321,6 +321,18 @@
     if (s.result || !t?.revealed || t.clue !== 0) return 0;
     return neighbors(id).filter(n => !s.tiles[n].flag && queueExplore(s, n,{automatic})).length;
   }
+  function queueAllZeroNeighbors(s) {
+    if(s.result)return 0;
+    let count=0;
+    for(const tile of s.tiles)if(tile.revealed&&tile.clue===0)count+=queueSafeNeighbors(s,tile.id);
+    return count;
+  }
+  function cancelAllExploration(s) {
+    if(s.result)return 0;
+    let count=0;
+    for(const task of [...s.tasks])if(task.kind==='explore'&&cancelTask(s,task.tileId))count++;
+    return count;
+  }
   function buildCost(s, kind) { return kind==='tower'&&s.towerSupport.available>0?{}:BUILDINGS[kind]?.cost; }
   function queueBuild(s, id, kind) {
     const t = s.tiles[id], spec = BUILDINGS[kind];
@@ -667,6 +679,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

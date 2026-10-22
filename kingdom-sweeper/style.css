@@ -76,3 +76,4 @@ main{padding-top:6px}
 }
 @media(max-width:360px){.play-hud .run-controls{justify-content:space-between}.run-controls button{min-height:44px}}
 .map-heading{flex-wrap:wrap}
+.queue-bulk{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.queue-bulk button{flex:1 1 130px;min-height:44px}

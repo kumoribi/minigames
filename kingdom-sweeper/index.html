@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
@@ -65,6 +65,8 @@
       </section>
       <section class="panel" data-sheet="queue">
         <div class="section-heading"><h2>開拓・建築予約</h2><b id="queue-count">0</b></div>
+        <div class="queue-bulk"><button id="explore-clear-all" type="button">開拓予約を全解除</button><button id="zero-explore-all" type="button">0周辺を一括開拓</button></div>
+        <p class="muted">全解除は建築・育成予約を残します。0周辺はWorkerが通常どおり開拓します。</p>
         <div id="queue-list" class="queue-list"><p class="muted">予約はありません</p></div>
       </section>
     </aside>
@@ -144,6 +146,7 @@
     <p>宝箱は資源に加え「農場生産+25%」「全兵士攻撃+20%」「塔射程+5%」の3択。ただし塔がなく設営支援を未取得のとき、3枠目は「前線設営の支援」です。次の監視塔1棟のWOOD60・GOLD15を免除します。1王国1回で、開拓済みの空き平地・敵との距離・Worker建築8秒は通常どおり。予約取消は支援を返し、資源の払い戻しはありません。「この王国の強化」で未使用・予約中・設営済みを確認し、後から配置もできます。</p>
     <p>設営支援を選ぶと塔の配置モードへ移ります。時間は止まらないので、空き平地へ予約してください。支援を使わず別の操作に戻っても失いません。報酬を閉じても上部の「報酬」から再表示可能。複数の宝箱は順番に選び、設営支援を選んだ後の宝箱は塔射程強化になります。数値強化は基本値に加算、シナジーとは乗算し、既存・今後の対象に有効。新しい王国では全てリセットします。</p>
     <h3>現在の制限</h3>
+    <p>予約パネルの「開拓予約を全解除」は作業中を含む開拓予約だけを取り消し、建築・育成予約は残します。取り消したマスは自動で再予約されません。「0周辺を一括開拓」で表示済みのすべての0周辺をまとめて予約できます。旗付きは対象外で、取消済みの予約も再開できます。未探索の数字は参照せず、Workerが通常どおり移動・3秒作業します。</p>
     <p>兵士は近接できる敵を優先し、未開拓地や経路がない敵は避けて別の敵へ向かいます。混雑などで2秒間近づけなければその敵を3秒間候補から外して再選択します。攻撃間隔を待つだけでは除外されません。ほかに向かえる敵がなければ集合地点へ戻ります。防衛モードの範囲は維持します。</p>
     <p>領土が広がるほど敵のHP・攻撃力が強化されます。2乗カーブで序盤は緩やか、終盤ほど加速。初期9マス1倍、100マス約1.22倍、200マス約1.95倍、300マス約3.22倍、全400マス5倍。出現済みの敵も残りHP割合を保って強化され、旗なし拠点の強襲2倍とは乗算します。現在倍率は地図見出しに表示します。速度・攻撃間隔は変わりません。</p>
     <p>兵士の円形当たり判定は従来の80%（画像サイズはそのまま）。敵と近接しておらず、最後の攻撃・被弾から3秒経過すると、移動中も毎秒HP1を最大HPまで回復します。開始前・背景停止中・終了後・死亡後は回復しません。</p>
@@ -155,6 +158,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>報酬を1つ選択。時間と戦闘は進行します。</p><div id="upgrade-choices"></div><small>設営支援の選択後も時間は進行します。後から選ぶ場合は閉じて上部の「報酬」から開き直せます。</small><button id="treasure-close" type="button">閉じて戦闘に戻る</button></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=21"></script><script src="renderer.js?v=9"></script><script src="game.js?v=18"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=22"></script><script src="renderer.js?v=9"></script><script src="game.js?v=19"></script>
 </body>
 </html>

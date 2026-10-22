@@ -29,6 +29,8 @@
   }
   $('sheet-close').addEventListener('click',()=>sheet(null));
   $('queue-open').addEventListener('click',()=>sheet('queue'));
+  $('explore-clear-all').addEventListener('click',()=>{const count=E.cancelAllExploration(world);render();notice(`開拓予約を${count}件解除しました。建築・育成予約は維持します。`);});
+  $('zero-explore-all').addEventListener('click',()=>{const count=E.queueAllZeroNeighbors(world);render();notice(`表示済みの0周辺を${count}件予約しました。Workerが順番に開拓します。`);});
   document.querySelectorAll('[data-dock]').forEach(b=>b.addEventListener('click',()=>{
     const action=b.dataset.dock;
     if(action==='build'){sheet('build');return;}
@@ -176,6 +178,8 @@
     if(task) actions+=button('cancel','この予約を取り消す');
     if(actions!==actionKey){$('tile-actions').innerHTML=actions;actionKey=actions;}
     $('queue-count').textContent=world.tasks.length;
+    $('explore-clear-all').disabled=Boolean(world.result)||!world.tasks.some(q=>q.kind==='explore');
+    $('zero-explore-all').disabled=Boolean(world.result)||!world.tiles.some(t=>t.revealed&&t.clue===0);
     $('queue-open').textContent=`作業予約 ${world.tasks.length}件を確認`;
     const queues=world.tasks.slice(0,8).map(q=>{const t=world.tiles[q.tileId];return `<div class="queue-item"><button data-locate="${t.id}">${q.kind==='build' ? E.BUILDINGS[q.building].name.split(' / ')[1] : q.preparation ? '集結攻略' : q.assault ? '拠点攻略' : q.automatic ? '自動開拓' : '開拓'} (${t.x+1},${t.y+1}) <small>${E.preparationStatus(world,q) || (q.workerId ? `${Math.ceil(q.remaining)}秒` : '接続・作業員待ち')}</small></button><button data-cancel="${t.id}" aria-label="予約取消">×</button></div>`;}).join('')+(world.tasks.length>8 ? `<p class="muted">ほか ${world.tasks.length-8} 件</p>` : '') || '<p class="muted">予約はありません</p>';
     if(queues!==queueKey){$('queue-list').innerHTML=queues;queueKey=queues;}
