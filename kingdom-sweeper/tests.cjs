@@ -409,4 +409,44 @@ test('Crowded mixed armies and raids retain separation on every simulation step'
   for(let i=0;i<400&&!s.result;i++){E.tick(s,.05);assertSeparated(s);}
   assert(s.kills>0);assert(s.stats.lost.soldier>0||s.units.some(u=>u.hp<u.maxHp));
 });
+function trafficFixture(){
+  const s=E.create(42);s.units=[];s.enemies=[];
+  for(const t of s.tiles){t.revealed=true;t.danger=0;t.flag=false;t.amount=0;t.terrain='grass';}
+  s.workerFocus='forest';return s;
+}
+function trafficWorker(s,x,y){const u={id:s.nextId++,kind:'worker',x,y,hp:55,maxHp:55,attack:0,cooldown:0,task:null,target:null,gather:0};assert(E.placeBody(s,u,u));s.units.push(u);return u;}
+function simulateTraffic(s,seconds,observe=()=>{}){for(let i=0;i<seconds*20;i++){E.tick(s,.05);assertSeparated(s);observe();}}
+test('Regression: a Soldier on the gathering destination cannot permanently stop a Worker',()=>{
+  const s=trafficFixture(),w=trafficWorker(s,8,10);addSoldier(s,10,10);
+  const t=s.tiles[E.index(10,10)];t.terrain='forest';t.amount=10000;
+  simulateTraffic(s,60);assert(t.amount<9950);assert(w.workSpot);assert(Math.hypot(w.x-t.x,w.y-t.y)<=1.6);
+});
+test('Six Workers share one resource through separate work positions; every Worker makes progress',()=>{
+  const s=trafficFixture(),workers=[];for(let i=0;i<6;i++)workers.push(trafficWorker(s,6,10));
+  const t=s.tiles[E.index(10,10)];t.terrain='forest';t.amount=10000;
+  const worked=new Set(),previous=new Map(workers.map(u=>[u.id,0]));
+  simulateTraffic(s,45,()=>{for(const u of workers){if(u.gather!==previous.get(u.id))worked.add(u.id);previous.set(u.id,u.gather);}});
+  assert.equal(worked.size,6);assert(t.amount<9800);
+});
+test('Construction can finish beside an occupied tile without displacing or overlapping its Soldier',()=>{
+  const s=trafficFixture();trafficWorker(s,8,10);s.rally=E.index(12,10);addSoldier(s,12,10);
+  assert(E.queueBuild(s,s.rally,'farm'));simulateTraffic(s,30);
+  assert.equal(s.tiles[s.rally].building?.kind,'farm');assert.equal(s.tasks.length,0);
+});
+test('A narrow route with a passing bay allows a Worker past a waiting Soldier',()=>{
+  const s=trafficFixture();for(const t of s.tiles)t.revealed=t.y===10&&t.x>=5&&t.x<=15||t.x>=9&&t.x<=11&&t.y>=9&&t.y<=11;
+  trafficWorker(s,6,10);s.rally=E.index(10,10);addSoldier(s,10,10);
+  const t=s.tiles[E.index(14,10)];t.terrain='forest';t.amount=10000;
+  simulateTraffic(s,45);assert(t.amount<9970);
+});
+test('Opposing construction Workers finish both jobs instead of yielding forever',()=>{
+  const s=trafficFixture();trafficWorker(s,7,10);trafficWorker(s,13,10);
+  assert(E.queueBuild(s,E.index(12,10),'farm'));assert(E.queueBuild(s,E.index(8,10),'farm'));
+  simulateTraffic(s,40);assert.equal(s.tasks.length,0);assert.equal(s.tiles[E.index(12,10)].building?.kind,'farm');assert.equal(s.tiles[E.index(8,10)].building?.kind,'farm');
+});
+test('Twenty Soldiers arrive around the rally without shared staging deadlock or overlapping bodies',()=>{
+  const s=trafficFixture();E.setArmyMode(s,'defend');for(let i=0;i<20;i++)addSoldier(s,5,5);
+  simulateTraffic(s,80);assert.equal(s.units.filter(u=>Math.hypot(u.x-10,u.y-10)<4.5).length,20);
+  const spots=s.units.filter(u=>u.rallySpot).map(u=>`${u.rallySpot.x},${u.rallySpot.y}`);assert.equal(new Set(spots).size,20);
+});
 console.log(`${checks} scenarios passed.`);

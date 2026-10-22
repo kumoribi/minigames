@@ -296,12 +296,26 @@
     }
     return null;
   }
+  function trafficPriority(s,u) { return u.kind==='worker' ? (u.task?3:2) : (u.movingUntil>s.time?1:0); }
+  function requestPassage(s,u,p,dest) {
+    if(u.kind!=='worker'&&u.kind!=='soldier')return;
+    if(u.yieldRequest?.until>s.time)return;
+    for(const other of nearbyBodies(s,p)){
+      if(other===u||other.hp<=0||(other.kind!=='worker'&&other.kind!=='soldier')||!overlaps({...u,...p},other))continue;
+      if(u.kind==='soldier'&&other.kind==='soldier'&&other.movingUntil>s.time)continue;
+      const priority=trafficPriority(s,u)-trafficPriority(s,other);
+      if(priority<0||(priority===0&&u.id>other.id))continue;
+      if(other.yieldRequest?.until>s.time&&other.yieldRequest.id!==u.id)continue;
+      other.yieldRequest={id:u.id,until:s.time+1.8,dest:{x:dest.x,y:dest.y}};
+    }
+  }
   function move(s, u, goals, speed, dt, point = null, tolerance = null) {
     const route = path(s, u, goals, u.kind === 'goblin' || u.kind === 'dragon'); if (!route) return false;
     let dest = route.length ? s.tiles[route[0]] : point || s.tiles[goals.find(id => distance(s.tiles[id], u) < .8) ?? goals[0]];
     if (!dest) return false;
     const arrival=tolerance??(u.kind==='worker'?.72:.18);
-    if(!route.length&&distance(u,dest)<=arrival){u.detour=null;return true;}
+    if((point&&distance(u,point)<=arrival)||(!route.length&&distance(u,dest)<=arrival)){u.detour=null;u.movingUntil=0;return true;}
+    u.movingUntil=s.time+.3;
     const navKey=`${goals.join(',')}:${point?.x??''}:${point?.y??''}:${arrival}`;
     if(u.navKey!==navKey){u.navKey=navKey;u.detour=null;u.navTime=0;u.navDistance=Infinity;}
     const targets=point?[point]:goals.map(id=>s.tiles[id]),remaining=Math.min(...targets.map(t=>distance(u,t)));
@@ -315,6 +329,7 @@
     const d = distance(u, dest), step = Math.min(d, speed * dt);
     if(d>.001){
       const angle=Math.atan2(dest.y-u.y,dest.x-u.x),sign=u.id%2?1:-1;
+      requestPassage(s,u,{x:u.x+Math.cos(angle)*step,y:u.y+Math.sin(angle)*step},dest);
       // Steering tries the forward direction first, then both sides. Each accepted
       // step is collision-free; characters never push each other through fog.
       let moved=false;
@@ -336,11 +351,14 @@
     // Local sub-tile A*: used only after progress stalls. No global teleport/push.
     const step=.3,start={x:u.x,y:u.y,g:0,key:'0,0',ix:0,iy:0},open=[start],seen=new Map([['0,0',0]]);
     const heuristic=p=>Math.min(...targets.map(t=>distance(p,t)));
+    let closest=start,closestDistance=heuristic(start);
+    const routeTo=last=>{const route=[];for(let n=last;n.parent;n=n.parent)route.unshift({x:n.x,y:n.y});return route;};
     start.f=heuristic(start);
     for(let expanded=0;open.length&&expanded<800;expanded++){
       let best=0;for(let i=1;i<open.length;i++)if(open[i].f<open[best].f)best=i;
       const cur=open.splice(best,1)[0];
-      if(heuristic(cur)<=arrival){const route=[];let n=cur;while(n.parent){route.unshift({x:n.x,y:n.y});n=n.parent;}return route;}
+      const h=heuristic(cur);if(h<closestDistance){closest=cur;closestDistance=h;}
+      if(h<=arrival)return routeTo(cur);
       for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){
         const ix=cur.ix+dx,iy=cur.iy+dy;if(Math.abs(ix)>20||Math.abs(iy)>20)continue;
         const p={x:start.x+ix*step,y:start.y+iy*step},key=`${ix},${iy}`,g=cur.g+Math.hypot(dx,dy)*step;
@@ -349,41 +367,70 @@
         seen.set(key,g);open.push({...p,ix,iy,key,g,f:g+heuristic(p),parent:cur});
       }
     }
-    return null;
+    // Long detours may not reach the final destination inside this local window.
+    // Follow useful partial progress and replan from there rather than discard it.
+    return closestDistance<heuristic(start)-.3?routeTo(closest):null;
   }
   function moveToRally(s,u,dt) {
-    const origin=s.tiles[s.rally],rank=s.units.filter(a=>a.kind==='soldier'&&a.hp>0).findIndex(a=>a===u);
-    const options=[];
-    for(let ring=0;ring<=17&&options.length<=rank;ring++){
-      for(let y=-ring;y<=ring;y++)for(let x=-ring;x<=ring;x++)if(Math.max(Math.abs(x),Math.abs(y))===ring){
-        const point={x:origin.x+x*1.2,y:origin.y+y*1.2},h=bodyHalf(u);
-        if(point.x<h-.5||point.y<h-.5||point.x>19.5-h||point.y>19.5-h)continue;
-        const id=index(Math.round(point.x),Math.round(point.y));if(s.tiles[id].revealed)options.push({id,point});
+    const origin=s.tiles[s.rally];
+    if(u.rallyKey!==s.rally){u.rallyKey=s.rally;u.rallySpot=null;}
+    u.rallyBlocked=u.rallySpot&&!canStand(s,u,u.rallySpot)?(u.rallyBlocked||0)+dt:0;
+    if(!u.rallySpot||u.rallyBlocked>.8){
+      const options=[];
+      for(let ring=0;ring<=17;ring++){
+        for(let y=-ring;y<=ring;y++)for(let x=-ring;x<=ring;x++)if(Math.max(Math.abs(x),Math.abs(y))===ring){
+          const p={x:origin.x+x*1.2,y:origin.y+y*1.2};if(!canStand(s,u,p))continue;
+          if(s.units.some(a=>a!==u&&a.hp>0&&a.rallyKey===s.rally&&a.rallySpot&&overlaps({...u,...p},{...a,...a.rallySpot})))continue;
+          const id=index(Math.round(p.x),Math.round(p.y));if(path(s,u,[id])!==null)options.push(p);
+        }
+        if(options.length&&ring>=2)break;
       }
-      options.sort((a,b)=>distance(a.point,origin)-distance(b.point,origin));
+      options.sort((a,b)=>distance(a,origin)-distance(b,origin)||distance(u,a)-distance(u,b));
+      u.rallySpot=options[0]||null;u.rallyBlocked=0;
     }
-    const spot=options[Math.max(0,rank)];
-    if(rank>=9&&s.units.filter(a=>a.kind==='soldier'&&a.hp>0).slice(0,9).some((a,i)=>options[i]&&distance(a,options[i].point)>.28)){
-      // Fill the inner ring before outer ranks can block its entrances.
-      const angle=(rank%4)*Math.PI/2,point={x:origin.x+Math.cos(angle)*3.6,y:origin.y+Math.sin(angle)*3.6};
-      const id=index(Math.max(0,Math.min(19,Math.round(point.x))),Math.max(0,Math.min(19,Math.round(point.y))));
-      if(s.tiles[id].revealed)return move(s,u,[id],2.1,dt,point);
-    }
-    return spot?move(s,u,[spot.id],2.1,dt,spot.point):move(s,u,[s.rally],2.1,dt);
+    if(!u.rallySpot)return false;
+    const id=index(Math.round(u.rallySpot.x),Math.round(u.rallySpot.y));
+    return move(s,u,[id],2.1,dt,u.rallySpot,.18);
   }
   function nearest(list, p) { return list.reduce((best, t) => !best || distance(t, p) < distance(best, p) ? t : best, null); }
   function yieldToWorker(s,u,dt) {
-    const requester=nearest(s.units.filter(a=>a!==u&&a.hp>0&&a.kind==='worker'&&a.task&&distance(a,u)<1.8),u);
-    if(!requester){u.yieldGoal=null;return false;}
-    if(!u.yieldGoal){
-      const task=s.tasks.find(t=>t.id===requester.task),goal=task&&s.tiles[task.tileId];if(!goal)return false;
-      const dx=goal.x-requester.x,dy=goal.y-requester.y,len=Math.hypot(dx,dy)||1;
-      const options=s.tiles.filter(t=>t.revealed&&distance(t,u)>.6&&distance(t,u)<=2.2&&!s.units.some(a=>a!==u&&a.yieldGoal===t.id)&&canStand(s,u,t));
-      options.sort((a,b)=>(Math.abs(dx*(b.y-requester.y)-dy*(b.x-requester.x))/len-.2*distance(b,u))-(Math.abs(dx*(a.y-requester.y)-dy*(a.x-requester.x))/len-.2*distance(a,u)));
-      if(!options.length)return false;u.yieldGoal=options[0].id;
+    const request=u.yieldRequest,requester=request&&s.units.find(a=>a.id===request.id&&a.hp>0);
+    if(!requester||request.until<=s.time){u.yieldGoal=null;u.yieldRequest=null;return false;}
+    if(!u.yieldGoal||!canStand(s,u,u.yieldGoal)){
+      const dx=request.dest.x-requester.x,dy=request.dest.y-requester.y,len=Math.hypot(dx,dy)||1,options=[];
+      for(let y=-2;y<=2;y++)for(let x=-2;x<=2;x++)if(x||y){
+        const p={x:u.x+x*.65,y:u.y+y*.65};
+        if(!canStand(s,u,p)||s.units.some(a=>a!==u&&a.yieldGoal&&overlaps({...u,...p},{...a,...a.yieldGoal})))continue;
+        const clearance=Math.abs(dx*(p.y-requester.y)-dy*(p.x-requester.x))/len;
+        options.push({...p,score:clearance-.15*distance(p,u)+.1*distance(p,request.dest)});
+      }
+      options.sort((a,b)=>b.score-a.score);if(!options.length)return false;u.yieldGoal=options[0];
     }
-    if(move(s,u,[u.yieldGoal],u.kind==='worker'?1.8:2.1,dt,null,.05))u.yieldGoal=null;
+    const id=index(Math.round(u.yieldGoal.x),Math.round(u.yieldGoal.y));
+    // Hold the bay briefly after arrival; immediately returning recreates the jam.
+    move(s,u,[id],u.kind==='worker'?1.8:2.1,dt,u.yieldGoal,.12);
     return true;
+  }
+  function moveToWork(s,u,key,centers,dt) {
+    const valid=p=>centers.some(c=>distance(p,c)<=1.36)&&s.tiles[index(Math.round(p.x),Math.round(p.y))]?.revealed;
+    if(u.workKey!==key){u.workKey=key;u.workSpot=null;u.workBlocked=0;}
+    if(u.workSpot&&!canStand(s,u,u.workSpot))u.workBlocked=(u.workBlocked||0)+dt;else u.workBlocked=0;
+    if(!u.workSpot||!valid(u.workSpot)||u.workBlocked>.8){
+      const options=[];
+      for(const center of centers)for(const [dx,dy] of [[0,0],[.95,0],[-.95,0],[0,.95],[0,-.95],[.95,.95],[.95,-.95],[-.95,.95],[-.95,-.95],[1.25,0],[-1.25,0],[0,1.25],[0,-1.25]]){
+        const p={x:center.x+dx,y:center.y+dy};if(!canStand(s,u,p)||!valid(p))continue;
+        if(s.units.some(a=>a!==u&&a.hp>0&&a.workSpot&&overlaps({...u,...p},{...a,...a.workSpot})))continue;
+        const id=index(Math.round(p.x),Math.round(p.y));if(path(s,u,[id])!==null)options.push(p);
+      }
+      options.sort((a,b)=>distance(u,a)-distance(u,b));u.workSpot=options[0]||null;u.workBlocked=0;
+    }
+    if(!u.workSpot){
+      // Request access even when every currently usable work position is occupied.
+      const target=nearest(centers,u);if(target)move(s,u,[index(target.x,target.y)],1.8,dt);
+      return false;
+    }
+    const id=index(Math.round(u.workSpot.x),Math.round(u.workSpot.y));
+    return move(s,u,[id],1.8,dt,u.workSpot,.18);
   }
   function taskGoals(s, task) { return task.kind === 'explore' ? neighbors(task.tileId, false).filter(id => s.tiles[id].revealed) : [task.tileId]; }
   function updateWorker(s, u, dt) {
@@ -391,19 +438,19 @@
     if (task && preparationStatus(s, task)) { task.workerId = null; u.task = null; task = null; }
     const threat = nearest(s.enemies.filter(e => e.hp > 0), u);
     if (threat && distance(threat, u) < 2.2) { move(s, u, [s.keepId], 1.8, dt); return; }
-    if(!task&&yieldToWorker(s,u,dt))return;
+    if(yieldToWorker(s,u,dt))return;
     if (!task) {
       u.task = null;
       task = s.tasks.find(t => !t.workerId && !preparationStatus(s, t) && taskGoals(s, t).length && path(s, u, taskGoals(s, t)) !== null);
       if (task) { task.workerId = u.id; u.task = task.id; }
     }
     if (task) {
-      if (move(s, u, taskGoals(s, task), 1.8, dt)) {
+      if (moveToWork(s,u,`task:${task.id}`,taskGoals(s,task).map(id=>s.tiles[id]),dt)) {
         task.remaining -= dt;
         if (task.remaining <= 0) {
           if (task.kind === 'explore') reveal(s, task.tileId, {assault:task.assault});
           else { const tile = s.tiles[task.tileId]; tile.building = building(task.building); if(task.supported){tile.building.supported=true;s.towerSupport.built++;} s.effects.push({ kind: 'build', x: tile.x, y: tile.y, life: .8 }); log(s, `${BUILDINGS[task.building].name}が完成。`); }
-          s.tasks = s.tasks.filter(t => t !== task); u.task = null;
+          s.tasks = s.tasks.filter(t => t !== task); u.task = null;u.workSpot=null;u.workKey=null;
         }
       }
       return;
@@ -413,7 +460,8 @@
     if (s.workerFocus) options = resourceTiles.filter(t => t.terrain === s.workerFocus);
     else { const kind = ['forest', 'food', 'mine'][(u.id - 1) % 3]; const preferred = resourceTiles.filter(t => t.terrain === kind); if (preferred.length) options = preferred; }
     const target = nearest(options, u); u.target = target?.id ?? null;
-    if (target && move(s, u, [target.id], 1.8, dt)) {
+    if(!target){u.workSpot=null;u.workKey=null;}
+    if (target && moveToWork(s,u,`gather:${target.id}`,[target],dt)) {
       const amount = Math.min(target.amount, 2 * dt), key = { forest: 'wood', food: 'food', mine: 'gold' }[target.terrain];
       target.amount -= amount; s.resources[key] += amount; u.gather += dt;
       if (u.gather >= 2) { u.gather -= 2; s.effects.push({ kind: 'gather', resource: key, x: target.x, y: target.y, life: .7 }); }
@@ -425,11 +473,12 @@
     const rally = s.tiles[s.rally], defending = s.armyMode === 'defend';
     const enemy = nearest(s.enemies.filter(e => e.hp > 0 && (!defending || distance(e, rally) <= s.defenseRadius || inMelee(e,u))), u);
     u.cooldown = Math.max(0, u.cooldown - dt);
+    if(!enemy&&yieldToWorker(s,u,dt))return;
     if (defending && distance(u, rally) > s.defenseRadius && (!enemy || !inMelee(u,enemy))) { moveToRally(s,u,dt); return; }
     if (enemy) {
       if (inMelee(u,enemy)) { if (!u.cooldown) { hit(s, enemy, soldierAttack(s, u), u); u.cooldown = .8; } }
       else { const id = index(Math.round(enemy.x), Math.round(enemy.y)); if (s.tiles[id]?.revealed) move(s, u, [id], 2.1, dt); }
-    } else if(!yieldToWorker(s,u,dt))moveToRally(s,u,dt);
+    } else moveToRally(s,u,dt);
   }
   function tick(s, dt) {
     if (s.result || s.phase!=='running' || s.backgroundPaused || dt <= 0) return;
