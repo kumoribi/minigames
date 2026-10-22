@@ -25,12 +25,12 @@
   const UPGRADES = {
     farm: { name: '豊穣の祝福', description: 'すべての農場の生産量 +25%', step: .25 },
     soldier: { name: '勇者の誓い', description: '既存・今後の全兵士の攻撃 +20%', step: .2 },
-    tower: { name: '遠見の眼', description: '王城とすべての監視塔の射程 +30%', step: .3 },
+    tower: { name: '遠見の眼', description: '王城とすべての監視塔の射程 +10%', step: .1 },
     outpost: { name: '前線設営の支援', description: '監視塔1棟のWood60・Gold15を免除。Workerの建築8秒と通常の建築条件は必要', step: 0 }
   };
   function hasNeighbor(s, id, kind, diagonal) { return neighbors(id, diagonal).some(n => s.tiles[n].building?.kind === kind && s.tiles[n].building.hp > 0); }
   function farmRate(s, id) { return 1.6 * (1 + s.upgrades.farm * .25) * (hasNeighbor(s, id, 'windmill', true) ? 1.25 : 1); }
-  function towerRange(s) { return 3 * (1 + s.upgrades.tower * .3); }
+  function towerRange(s) { return 3 * (1 + s.upgrades.tower * UPGRADES.tower.step); }
   function soldierAttack(s, unit) { return unit.attack * (1 + s.upgrades.soldier * .2); }
   function rewardOptions(s) {
     const hasTower=s.tiles.some(t=>t.building?.kind==='tower'&&t.building.hp>0);

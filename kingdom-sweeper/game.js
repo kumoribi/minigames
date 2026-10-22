@@ -154,7 +154,7 @@
       blacksmith:'青枠内の兵舎から育成完了した兵士の攻撃・HPを20%強化。複数の鍛冶屋でも重複しません。',
       tower:`青い円：射程${E.towerRange(world).toFixed(2)}マス。範囲内の敵を自動攻撃。`
     })[k] || '';
-    $('kingdom-upgrades').textContent=`農場 +${world.upgrades.farm*25}% ・ 兵士攻撃 +${world.upgrades.soldier*20}% ・ 王城・塔射程 +${world.upgrades.tower*30}%`;
+    $('kingdom-upgrades').textContent=`農場 +${world.upgrades.farm*25}% ・ 兵士攻撃 +${world.upgrades.soldier*20}% ・ 王城・塔射程 +${Math.round(world.upgrades.tower*E.UPGRADES.tower.step*100)}%`;
     let actions='';
     $('army-pursue').setAttribute('aria-pressed',String(world.armyMode==='pursue'));
     $('army-defend').setAttribute('aria-pressed',String(world.armyMode==='defend'));

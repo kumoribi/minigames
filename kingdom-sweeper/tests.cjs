@@ -102,12 +102,12 @@ test('Upgrade arithmetic: existing soldiers, forged soldiers, farm synergy, rese
   const r=chest(s,0);E.chooseUpgrade(s,r,'farm');assert.equal(E.farmRate(s,id),2.5);
   for(let i=0;i<2;i++)E.chooseUpgrade(s,chest(s,1+i),'soldier');
   assert.equal(E.soldierAttack(s,{attack:16}),22.4);assert(Math.abs(E.soldierAttack(s,{attack:19.2})-26.88)<1e-9);
-  E.chooseUpgrade(s,chest(s,3),'tower');assert(Math.abs(E.towerRange(s)-3.9)<1e-9);
+  E.chooseUpgrade(s,chest(s,3),'tower');assert(Math.abs(E.towerRange(s)-3.3)<1e-9);
   assert.deepEqual(E.create(13).upgrades,{farm:0,soldier:0,tower:0});
 });
 test('Tower upgraded range affects combat, Soldier upgrade affects existing combat',()=>{
   const s=E.create(14);s.units=[];const id=E.index(9,9);s.tiles[id].building=fixtureBuilding('tower');
-  const enemy={id:99,kind:'goblin',x:9,y:5.5,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];
+  const enemy={id:99,kind:'goblin',x:9,y:5.8,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];
   advance(s,.1);assert.equal(enemy.hp,100);E.chooseUpgrade(s,chest(s,0),'tower');advance(s,.1);assert.equal(enemy.hp,86);
   const towerHit=s.effects.find(e=>e.kind==='hit');assert.equal(towerHit.sourceId,id);assert.equal(towerHit.targetId,enemy.id);
   const u={id:111,kind:'soldier',x:enemy.x+.7,y:enemy.y,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
@@ -206,7 +206,7 @@ test('Treasure always offers three contextual choices; support cannot be obtaine
   const reward=chest(s,0),before=JSON.stringify(s);assert(!E.chooseUpgrade(s,reward,'tower'));assert.equal(JSON.stringify(s),before);
   assert(E.chooseUpgrade(s,reward,'outpost'));assert.deepEqual(s.towerSupport,{claimed:1,available:1,built:0});assert.equal(s.upgrades.tower,0);
   const next=chest(s,1);assert.deepEqual(E.rewardOptions(s),['farm','soldier','tower']);assert(!E.chooseUpgrade(s,next,'outpost'));assert(!E.chooseUpgrade(s,reward,'outpost'));
-  assert(E.chooseUpgrade(s,next,'tower'));assert(Math.abs(E.towerRange(s)-3.9)<1e-9);
+  assert(E.chooseUpgrade(s,next,'tower'));assert(Math.abs(E.towerRange(s)-3.3)<1e-9);
   const t=E.create(61);t.tiles[t.keepId].building=fixtureBuilding('tower');assert.deepEqual(E.rewardOptions(t),['farm','soldier','tower']);
 });
 test('Support does not bypass terrain, visibility, enemy proximity, duplicates or finite stock',()=>{
@@ -324,9 +324,9 @@ test('Keep auto-defense respects radius, nearest target, single-target damage an
 test('Keep shares tower range upgrades while remaining eligible for first standalone tower support',()=>{
   const s=E.create(81);s.units=[];assert.deepEqual(E.rewardOptions(s),['farm','soldier','outpost']);
   const support=chest(s,0);assert(E.chooseUpgrade(s,support,'outpost'));assert.equal(s.towerSupport.available,1);
-  const enemy=goblin(s,13.8,10);enemy.hp=enemy.maxHp=1000;s.enemies=[enemy];E.tick(s,.05);assert.equal(enemy.hp,1000);
+  const enemy=goblin(s,13.2,10);enemy.hp=enemy.maxHp=1000;s.enemies=[enemy];E.tick(s,.05);assert.equal(enemy.hp,1000);
   const reward=chest(s,1);assert(E.chooseUpgrade(s,reward,'tower'));E.tick(s,.05);assert.equal(enemy.hp,986);
-  assert(Math.abs(E.towerRange(s)-3.9)<1e-9);assert.equal(s.towerSupport.available,1);
+  assert(Math.abs(E.towerRange(s)-3.3)<1e-9);assert.equal(s.towerSupport.available,1);
   const fresh=E.create(81);assert.equal(E.towerRange(fresh),3);assert.equal(fresh.tiles[fresh.keepId].building.cooldown,0);
 });
 test('Keep and a standalone tower fire independently with separate source IDs and cooldowns',()=>{
@@ -482,5 +482,18 @@ test('Sheltering Workers remain vulnerable and return to solid state after the t
   assert.equal(worker.waitingNonSolid,'shelter');assert(worker.hp<55);assert(s.enemies.length);
   s.enemies=[];E.tick(s,.05);assert(E.collisionEnabled(worker));assert(!worker.waitingNonSolid);
   assert(E.create(42).units.every(u=>!u.waitingNonSolid));
+});
+test('Tower bonus is additive +10 percent, and Keep/Tower honor the upgraded boundary',()=>{
+  assert.equal(E.UPGRADES.tower.step,.1);assert(E.UPGRADES.tower.description.includes('+10%'));
+  for(const kind of ['keep','tower']){
+    const s=trafficFixture(),id=s.keepId;s.tiles[id].building=fixtureBuilding(kind);s.towerSupport.claimed=1;
+    assert.equal(E.towerRange(s),3);assert(E.chooseUpgrade(s,chest(s,0),'tower'));assert(Math.abs(E.towerRange(s)-3.3)<1e-10);
+    const enemy=goblin(s,13.301,10);enemy.hp=enemy.maxHp=1000;enemy.attack=0;enemy.cooldown=1000;s.enemies=[enemy];
+    // Just inside/outside avoids coordinate-subtraction floating-point noise.
+    E.tick(s,.01);assert.equal(enemy.hp,1000);enemy.x=13.3-1e-7;E.tick(s,.01);assert.equal(enemy.hp,986);
+    assert(E.chooseUpgrade(s,chest(s,1),'tower'));assert(Math.abs(E.towerRange(s)-3.6)<1e-10);
+    assert(E.chooseUpgrade(s,chest(s,2),'tower'));assert(Math.abs(E.towerRange(s)-3.9)<1e-10);
+    assert.equal(E.towerRange(E.create(42)),3);
+  }
 });
 console.log(`${checks} scenarios passed.`);
