@@ -12,6 +12,7 @@
   });
   const BODY_RADIUS=Object.freeze(Object.fromEntries(Object.entries(UNIT_VISUALS).map(([kind,v])=>[kind,Math.max(v.bounds[2]-v.bounds[0],v.bounds[3]-v.bounds[1])*v.size/Math.max(v.width,v.height)/112*(kind==='soldier'?.8:1)])));
   const RAID_RULES = Object.freeze({ first: 90, spread: 60, interval: 60, ambushMultiplier: 2 });
+  const CAMP_REWARD=Object.freeze({food:30,wood:30,gold:15});
   const BUILDINGS = {
     keep: { name: 'Keep / 王城', hp: 900, cost: {}, time: 0 },
     farm: { name: 'Farm / 農場', hp: 160, cost: { wood: 30 }, time: 5 },
@@ -359,11 +360,12 @@
     if (!canPay(s, UNIT_COST[kind])) return { ok: false, reason: '育成資源が不足しています。' };
     pay(s, UNIT_COST[kind]); b.train.push({ kind, remaining: kind === 'worker' ? 5 : 7 }); return { ok: true };
   }
-  function spawn(s, kind, tile, count = 1, empowered = false) {
+  function spawn(s, kind, tile, count = 1, empowered = false, rewardCampId = null) {
     for (let i = 0; i < count; i++) {
       const boss = kind === 'dragon';
       const multiplier = empowered ? RAID_RULES.ambushMultiplier : 1;
       const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp: (boss ? 1200 : 48) * multiplier, maxHp: (boss ? 1200 : 48) * multiplier, attack: (boss ? 28 : 7) * multiplier, cooldown: 1.5, empowered };
+      if(rewardCampId!==null)enemy.rewardCampId=rewardCampId;
       scaleEnemy(enemy,enemyMultiplier(s));
       const h=bodyRadius(enemy),origin=boss?{x:Math.max(h-.5,Math.min(SIZE-.5-h,tile.x)),y:Math.max(h-.5,Math.min(SIZE-.5-h,tile.y))}:{x:tile.x,y:tile.y};
       if(boss?canStand(s,enemy,origin):placeBody(s,enemy,tile)){
@@ -390,13 +392,28 @@
     updateEnemyStrength(s);
     if (tile.danger === 3) { s.dragonAwake = true; spawn(s, 'dragon', tile); log(s, 'Dragonが目覚めた！軍を集結して王城を守れ。', 'danger'); }
     else if (tile.danger === 1) {
-      tile.terrain = 'camp';spawn(s, 'goblin', tile, 3 + id % 3, !prepared);
+      const count=3+id%3;
+      if(prepared)tile.campReward={total:count,claimed:false};
+      tile.terrain = 'camp';spawn(s, 'goblin', tile, count, !prepared,prepared?id:null);
       if(!prepared)s.raids.ambushes++;
       log(s,prepared?'拠点攻略開始。通常部隊を迎撃！':'奇襲失敗！HP・攻撃2倍の強化部隊が出現！','danger');
     }
     else if (tile.terrain === 'chest') { s.resources.gold += 35; s.resources.wood += 20; s.resources.food += 20; tile.terrain = 'grass'; s.pendingRewards.push({ id: s.nextId++, tileId: id }); log(s, '宝箱発見！資源を獲得。3つの報酬から1つ選ぼう。', 'reward'); }
     s.effects.push({ kind: 'reveal', x: tile.x, y: tile.y, life: .8 });
     if(s.autoZero&&tile.clue===0)queueSafeNeighbors(s,id,{automatic:true});
+  }
+  function campRewardStatus(s,id){
+    const record=s.tiles[id]?.campReward;if(!record)return null;
+    const remaining=s.enemies.filter(e=>e.hp>0&&e.rewardCampId===id).length+s.pendingSpawns.filter(p=>p.enemy.hp>0&&p.enemy.rewardCampId===id).length;
+    return {...record,remaining};
+  }
+  function settleCampRewards(s){
+    for(const tile of s.tiles)if(tile.campReward&&!tile.campReward.claimed&&campRewardStatus(s,tile.id).remaining===0){
+      tile.campReward.claimed=true;
+      for(const [key,amount] of Object.entries(CAMP_REWARD))s.resources[key]+=amount;
+      s.effects.push({kind:'conquest',x:tile.x,y:tile.y,life:.9});
+      log(s,`拠点制圧 (${tile.x+1},${tile.y+1})！追加戦利品：Food +30・Wood +30・Gold +15。`,'reward');
+    }
   }
   // Four-neighbour paths keep movement inside revealed territory.
   function path(s, from, goals, throughFog = false) {
@@ -673,12 +690,13 @@
     }
     for (const e of s.enemies.filter(e => e.hp <= 0)) { s.kills++; s.resources.gold += e.kind === 'dragon' ? 150 : 6; if (e.kind === 'dragon') { s.result = 'victory'; log(s, 'Dragon討伐！王国に平和が戻った。', 'reward'); } }
     s.enemies = s.enemies.filter(e => e.hp > 0);
+    settleCampRewards(s);
     for (const u of s.units.filter(u => u.hp <= 0)) { s.stats.lost[u.kind]++; if (u.task) { const task = s.tasks.find(t => t.id === u.task); if (task) task.workerId = null; } }
     s.units = s.units.filter(u => u.hp > 0);
     if (s.tiles[s.keepId].building.hp <= 0) { s.result = 'defeat'; log(s, '王城が陥落しました。', 'danger'); }
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

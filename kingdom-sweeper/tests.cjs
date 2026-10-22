@@ -783,4 +783,54 @@ test('Both bulk operations are result-locked and preserve task/Worker state afte
     assert.equal(Engine.cancelAllExploration(s),0);assert.equal(Engine.queueAllZeroNeighbors(s),0);assert.equal(JSON.stringify(s.tasks),tasks);assert.equal(JSON.stringify(s.units),units);
   }
 });
+function rewardCamp(s,x=4,y=4){const id=E.index(x,y),tile=s.tiles[id];tile.revealed=false;tile.danger=1;tile.flag=true;Engine.reveal(s,id,{assault:true});return id;}
+test('Flagged camp rewards only a full clear, once, in addition to normal kill gold',()=>{
+  const s=pushFixture(),id=rewardCamp(s),total=Engine.campRewardStatus(s,id).total,before={...s.resources};
+  assert.deepEqual(Engine.CAMP_REWARD,{food:30,wood:30,gold:15});assert.equal(s.resources.gold,before.gold);
+  s.enemies.find(e=>e.rewardCampId===id).hp=0;Engine.tick(s,.05);
+  assert.equal(Engine.campRewardStatus(s,id).remaining,total-1);assert(!s.tiles[id].campReward.claimed);assert.equal(s.resources.gold,before.gold+6);
+  s.enemies.filter(e=>e.rewardCampId===id).forEach(e=>e.hp=0);Engine.tick(s,.05);
+  assert(Engine.campRewardStatus(s,id).claimed);assert.equal(Engine.campRewardStatus(s,id).remaining,0);
+  assert(Math.abs(s.resources.food-before.food-30-.03)<1e-8);assert(Math.abs(s.resources.wood-before.wood-30-.03)<1e-8);assert.equal(s.resources.gold,before.gold+total*6+15);
+  const gold=s.resources.gold;stepExact(s,1);assert.equal(s.resources.gold,gold);assert.equal(s.events.filter(e=>e.text.includes('追加戦利品')).length,1);
+});
+test('Flags alone, false flags, unflagged/ordinary excavation and Dragons do not qualify for camp loot',()=>{
+  for(const [danger,flag,assault] of [[1,false,false],[1,true,false],[1,false,true],[0,true,true],[3,true,true]]){
+    const s=pushFixture(),tile=s.tiles[E.index(4,4)];tile.revealed=false;tile.danger=danger;tile.flag=flag;tile.terrain='grass';
+    assert.equal(Engine.campRewardStatus(s,tile.id),null);Engine.reveal(s,tile.id,{assault});assert.equal(Engine.campRewardStatus(s,tile.id),null);
+    s.enemies.forEach(e=>e.hp=0);Engine.tick(s,.05);assert(!s.events.some(e=>e.text.includes('追加戦利品')));
+  }
+});
+test('A wholly pending camp cannot pay until every deferred spawn has appeared and died',()=>{
+  const s=pushFixture();for(let y=6;y<=14;y+=.75)for(let x=6;x<=14;x+=.75)s.enemies.push(goblin(s,x,y));
+  const id=rewardCamp(s,10,10),total=s.tiles[id].campReward.total;
+  assert.equal(s.pendingSpawns.filter(p=>p.enemy.rewardCampId===id).length,total);Engine.tick(s,.05);assert(!s.tiles[id].campReward.claimed);assert.equal(s.resources.gold,0);assert.equal(Engine.campRewardStatus(s,id).remaining,total);
+  s.enemies=[];Engine.tick(s,.05);assert.equal(s.pendingSpawns.length,0);assert(!s.tiles[id].campReward.claimed);assert.equal(s.enemies.length,total);
+  s.enemies.forEach(e=>e.hp=0);Engine.tick(s,.05);assert(s.tiles[id].campReward.claimed);assert.equal(s.resources.gold,total*6+15);
+});
+test('Earlier periodic raiders neither grant nor obstruct the flagged assault reward',()=>{
+  const s=pushFixture(),tile=s.tiles[E.index(4,4)];tile.revealed=false;tile.danger=1;tile.nextRaidAt=0;
+  Engine.tick(s,.05);const raider=s.enemies[0];assert(raider);assert.equal(raider.rewardCampId,undefined);assert(!tile.campReward);
+  assert(Engine.setFlag(s,tile.id));Engine.reveal(s,tile.id,{assault:true});s.enemies.filter(e=>e.rewardCampId===tile.id).forEach(e=>e.hp=0);
+  Engine.tick(s,.05);assert(tile.campReward.claimed);assert(s.enemies.includes(raider));const gold=s.resources.gold;
+  raider.hp=0;Engine.tick(s,.05);assert.equal(s.resources.gold,gold+6);assert.equal(s.events.filter(e=>e.text.includes('追加戦利品')).length,1);
+});
+test('Independent camps settle independently and cannot pay each other repeatedly',()=>{
+  const s=pushFixture(),a=rewardCamp(s,4,4),b=rewardCamp(s,15,15);
+  s.enemies.filter(e=>e.rewardCampId===a).forEach(e=>e.hp=0);Engine.tick(s,.05);assert(s.tiles[a].campReward.claimed);assert(!s.tiles[b].campReward.claimed);
+  s.enemies.filter(e=>e.rewardCampId===b).forEach(e=>e.hp=0);Engine.tick(s,.05);assert(s.tiles[b].campReward.claimed);assert.equal(s.events.filter(e=>e.text.includes('追加戦利品')).length,2);
+  assert(Math.abs(s.resources.food-160-.03)<1e-8);assert.equal(s.resources.gold,(s.tiles[a].campReward.total+s.tiles[b].campReward.total)*6+30);
+});
+test('Reopening/cancelling cannot duplicate loot; a new kingdom has no inherited reward record',()=>{
+  const s=pushFixture(),id=rewardCamp(s);s.enemies.forEach(e=>e.hp=0);Engine.tick(s,.05);const gold=s.resources.gold;
+  Engine.reveal(s,id,{assault:true});assert(!Engine.setFlag(s,id));Engine.cancelAllExploration(s);stepExact(s,.2);assert.equal(s.resources.gold,gold);
+  assert(Engine.create(42).tiles.every(t=>!t.campReward));
+});
+test('Ready/background/result suspension cannot settle camp loot or change resources',()=>{
+  for(const mode of ['ready','background','result']){
+    const s=pushFixture(),id=rewardCamp(s);s.enemies.forEach(e=>e.hp=0);const resources={...s.resources};
+    if(mode==='ready')s.phase='ready';if(mode==='background')Engine.setBackgroundPaused(s,true);if(mode==='result')s.result='defeat';
+    Engine.tick(s,.05);assert.deepEqual(s.resources,resources);assert(!s.tiles[id].campReward.claimed);
+  }
+});
 console.log(`${checks} scenarios passed.`);

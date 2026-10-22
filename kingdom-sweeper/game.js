@@ -143,7 +143,8 @@
     $('use-tower-support').disabled=!support.available||Boolean(world.result);
     const t=world.tiles[selected], b=t.building, task=world.tasks.find(q=>q.tileId===selected);
     $('tile-title').textContent=`${b ? E.BUILDINGS[b.kind].name : t.revealed ? names[t.terrain] : '未探索'} (${t.x+1}, ${t.y+1})`;
-    $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 旗あり：正解なら封印、誤旗なら出撃元。正誤は不明。' : ' 拠点を旗なしで開くと強化部隊（HP・攻撃2倍）。'}`;
+    $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 旗あり：正解なら定期出撃を封印。敵拠点の攻略部隊の全滅でFood30・Wood30・Gold15。誤旗は出撃元。正誤は不明。' : ' 拠点を旗なしで開くと強化部隊（HP・攻撃2倍）。'}`;
+    const campReward=E.campRewardStatus(world,t.id);if(campReward)$('tile-description').textContent+=campReward.claimed?' ・ 制圧戦利品獲得済み':` ・ 制圧まで残り${campReward.remaining}/${campReward.total}体（出現待ち含む）。Food30・Wood30・Gold15`;
     if(b?.supported||task?.supported)$('tile-description').textContent+=' ・ 設営支援の塔（資源費用0）';
     if(b?.train[0]?.remaining===0)$('tile-description').textContent+=' ・ 出口が混雑：出現の空き待ち（費用の再支払いなし）';
     const k=buildKind || b?.kind;
@@ -231,7 +232,7 @@
   $('confirm-restart').addEventListener('click',()=>{$('confirm').close();restart();});
   $('again').addEventListener('click',()=>{$('result').close();restart();});
   document.addEventListener('visibilitychange',()=>{E.setBackgroundPaused(world,document.hidden);last=performance.now();render();});
-  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;visualTime+=elapsed;let remaining=elapsed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);for(const effect of world.effects)if(!seenEffects.has(effect)){seenEffects.add(effect);renderer.playEffect(effect);if(effect.kind==='build')sound(true);}remaining-=dt;}if(feedbackUntil<visualTime)$('feedback').hidden=true;uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}if(resultAt!==null&&visualTime>=resultAt){resultAt=null;for(const id of ['treasure','help','confirm'])if($(id).open)$(id).close();$('result').showModal();}draw();}
+  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;visualTime+=elapsed;let remaining=elapsed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);for(const effect of world.effects)if(!seenEffects.has(effect)){seenEffects.add(effect);renderer.playEffect(effect);if(effect.kind==='build'||effect.kind==='conquest')sound(true);}remaining-=dt;}if(feedbackUntil<visualTime)$('feedback').hidden=true;uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}if(resultAt!==null&&visualTime>=resultAt){resultAt=null;for(const id of ['treasure','help','confirm'])if($(id).open)$(id).close();$('result').showModal();}draw();}
   Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(async results=>{
     renderer=new window.KingdomRenderer(canvas,assets,frame); await renderer.ready;
     last=performance.now(); $('loading').hidden=true;setZoom(zoom);center();render();draw();if(firstHelp)openHelp(true);

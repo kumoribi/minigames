@@ -252,6 +252,8 @@
         this.own(ring,quiet?160:emerging?650:300,quiet?{}:{scaleX:1.5,scaleY:1.5});
         burst('dust',emerging?28:5);
         if(emerging){burst('fire',18);this.label(x,y-65,'Dragon 出現！','#ffb296',quiet,1000);}
+      } else if (effect.kind === 'conquest') {
+        burst('gold',24);this.label(x,y-35,'拠点制圧！ 食30・木30・金15','#ffe69e',quiet,1100);
       } else if (effect.kind === 'destroy') {
         burst('dust',18);burst('fire',8);this.label(x,y-28,'監視塔破壊','#ffb296',quiet,900);
       } else if (effect.kind === 'build') {
