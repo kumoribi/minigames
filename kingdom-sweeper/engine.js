@@ -34,7 +34,8 @@
   function soldierAttack(s, unit) { return unit.attack * (1 + s.upgrades.soldier * .2); }
   function enemyMultiplier(s) {
     if(s.enemyGrowth===false)return 1;
-    return 1+4*Math.max(0,Math.min(1,(s.tiles.filter(t=>t.revealed).length-9)/(SIZE*SIZE-9)));
+    const progress=Math.max(0,Math.min(1,(s.tiles.filter(t=>t.revealed).length-9)/(SIZE*SIZE-9)));
+    return 1+4*progress*progress;
   }
   function scaleEnemy(enemy,multiplier){
     if(enemy.hp<=0)return;

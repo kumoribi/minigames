@@ -634,10 +634,16 @@ function growthFixture(count=9){
 function stepExact(s,seconds,dt=.05){for(let elapsed=0;elapsed<seconds-1e-9;){const step=Math.min(dt,seconds-elapsed);Engine.tick(s,step);elapsed+=step;}}
 test('Production territory scaling runs smoothly from 9 cells at 1x to 400 at 5x, flags/reservations do not count',()=>{
   const s=growthFixture();for(const n of [0,9,100,200,300,400]){
-    s.tiles.forEach((t,i)=>{t.revealed=i<n;t.flag=!t.revealed;});assert(Math.abs(Engine.enemyMultiplier(s)-(1+4*Math.max(0,n-9)/391))<1e-10);
+    s.tiles.forEach((t,i)=>{t.revealed=i<n;t.flag=!t.revealed;});assert(Math.abs(Engine.enemyMultiplier(s)-(1+4*(Math.max(0,n-9)/391)**2))<1e-10);
   }
   s.tiles.forEach((t,i)=>t.revealed=i<9);assert.equal(Engine.enemyMultiplier(s),1);
   s.tasks.push({kind:'explore',tileId:19});assert.equal(Engine.enemyMultiplier(s),1);
+  // Each additional cell increases strength more than the preceding cell.
+  let previous=1,previousGain=0;
+  for(let n=10;n<=400;n++){
+    s.tiles.forEach((t,i)=>t.revealed=i<n);const value=Engine.enemyMultiplier(s),gain=value-previous;
+    assert(gain>previousGain);previous=value;previousGain=gain;
+  }
 });
 test('New normal/ambush/Dragon spawns use the revealed count including the just-opened cell',()=>{
   for(const kind of ['normal','ambush','dragon']){
@@ -656,7 +662,7 @@ test('Existing and pending enemies scale once, preserving wounded HP fraction an
 });
 test('Real opening updates existing enemies immediately; a new kingdom resets scaling',()=>{
   const s=growthFixture(),a=goblin(s,8,8);s.enemies=[a];Engine.reveal(s,9);
-  assert(Math.abs(a.maxHp-48*(1+4/391))<1e-9);assert.equal(a.hp,a.maxHp);
+  assert(Math.abs(a.maxHp-48*(1+4/391**2))<1e-9);assert.equal(a.hp,a.maxHp);
   const fresh=Engine.create(42);assert.equal(Engine.enemyMultiplier(fresh),1);
 });
 test('Soldier collision diameter is 80 percent while visual size and other bodies remain unchanged',()=>{
