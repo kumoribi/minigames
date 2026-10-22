@@ -25,7 +25,7 @@
   const UPGRADES = {
     farm: { name: '豊穣の祝福', description: 'すべての農場の生産量 +25%', step: .25 },
     soldier: { name: '勇者の誓い', description: '既存・今後の全兵士の攻撃 +20%', step: .2 },
-    tower: { name: '遠見の眼', description: '王城とすべての監視塔の射程 +10%', step: .1 },
+    tower: { name: '遠見の眼', description: '王城とすべての監視塔の射程 +5%', step: .05 },
     outpost: { name: '前線設営の支援', description: '監視塔1棟のWood60・Gold15を免除。Workerの建築8秒と通常の建築条件は必要', step: 0 }
   };
   function hasNeighbor(s, id, kind, diagonal) { return neighbors(id, diagonal).some(n => s.tiles[n].building?.kind === kind && s.tiles[n].building.hp > 0); }
