@@ -10,7 +10,7 @@
     goblin:Object.freeze({size:50,width:128,height:128,bounds:Object.freeze([12,21,113,109])}),
     dragon:Object.freeze({size:108,width:192,height:189,bounds:Object.freeze([2,3,190,172])})
   });
-  const BODY_RADIUS=Object.freeze(Object.fromEntries(Object.entries(UNIT_VISUALS).map(([kind,v])=>[kind,Math.max(v.bounds[2]-v.bounds[0],v.bounds[3]-v.bounds[1])*v.size/Math.max(v.width,v.height)/112])));
+  const BODY_RADIUS=Object.freeze(Object.fromEntries(Object.entries(UNIT_VISUALS).map(([kind,v])=>[kind,Math.max(v.bounds[2]-v.bounds[0],v.bounds[3]-v.bounds[1])*v.size/Math.max(v.width,v.height)/112*(kind==='soldier'?.8:1)])));
   const RAID_RULES = Object.freeze({ first: 90, spread: 60, interval: 60, ambushMultiplier: 2 });
   const BUILDINGS = {
     keep: { name: 'Keep / 王城', hp: 900, cost: {}, time: 0 },
@@ -32,6 +32,21 @@
   function farmRate(s, id) { return 1.6 * (1 + s.upgrades.farm * .25) * (hasNeighbor(s, id, 'windmill', true) ? 1.25 : 1); }
   function towerRange(s) { return 3 * (1 + s.upgrades.tower * UPGRADES.tower.step); }
   function soldierAttack(s, unit) { return unit.attack * (1 + s.upgrades.soldier * .2); }
+  function enemyMultiplier(s) {
+    if(s.enemyGrowth===false)return 1;
+    return 1+4*Math.max(0,Math.min(1,(s.tiles.filter(t=>t.revealed).length-9)/(SIZE*SIZE-9)));
+  }
+  function scaleEnemy(enemy,multiplier){
+    if(enemy.hp<=0)return;
+    const previous=enemy.territoryMultiplier??1;if(previous===multiplier)return;
+    const ratio=multiplier/previous;
+    enemy.hp*=ratio;enemy.maxHp*=ratio;enemy.attack*=ratio;enemy.territoryMultiplier=multiplier;
+  }
+  function updateEnemyStrength(s){
+    const multiplier=enemyMultiplier(s);
+    for(const enemy of s.enemies)scaleEnemy(enemy,multiplier);
+    for(const pending of s.pendingSpawns)scaleEnemy(pending.enemy,multiplier);
+  }
   function rewardOptions(s) {
     const hasTower=s.tiles.some(t=>t.building?.kind==='tower'&&t.building.hp>0);
     return ['farm','soldier',!hasTower&&!s.towerSupport.claimed?'outpost':'tower'];
@@ -232,9 +247,9 @@
       if(count>=4)s.regions.push({id:i,kind,direction:r.dir.name,x:center.x,y:center.y,radius:1});
     }
   }
-  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true, autoZero = true } = {}) {
+  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true, autoZero = true, enemyGrowth = true } = {}) {
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, phase:'ready', backgroundPaused:false, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], pendingSpawns:[], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
-    s.autoZero=autoZero;s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
+    s.enemyGrowth=enemyGrowth;s.autoZero=autoZero;s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
     s.towerSupport = { claimed: 0, available: 0, built: 0 };
     s.raids = { spawned: 0, ambushes: 0 };
     s.armyMode = 'pursue'; s.defenseRadius = 3;
@@ -336,6 +351,7 @@
       const boss = kind === 'dragon';
       const multiplier = empowered ? RAID_RULES.ambushMultiplier : 1;
       const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp: (boss ? 1200 : 48) * multiplier, maxHp: (boss ? 1200 : 48) * multiplier, attack: (boss ? 28 : 7) * multiplier, cooldown: 1.5, empowered };
+      scaleEnemy(enemy,enemyMultiplier(s));
       const h=bodyRadius(enemy),origin=boss?{x:Math.max(h-.5,Math.min(SIZE-.5-h,tile.x)),y:Math.max(h-.5,Math.min(SIZE-.5-h,tile.y))}:{x:tile.x,y:tile.y};
       if(boss?canStand(s,enemy,origin):placeBody(s,enemy,tile)){
         if(boss){enemy.x=origin.x;enemy.y=origin.y;s.effects.push({kind:'dragon-emerge',...origin,life:.8});}
@@ -358,6 +374,7 @@
     const tile = s.tiles[id]; if (s.result || !tile || tile.revealed) return;
     const prepared=assault&&tile.flag;
     tile.revealed = true; tile.flag = false;
+    updateEnemyStrength(s);
     if (tile.danger === 3) { s.dragonAwake = true; spawn(s, 'dragon', tile); log(s, 'Dragonが目覚めた！軍を集結して王城を守れ。', 'danger'); }
     else if (tile.danger === 1) {
       tile.terrain = 'camp';spawn(s, 'goblin', tile, 3 + id % 3, !prepared);
@@ -559,7 +576,7 @@
       if (target.amount <= .001) { target.amount = 0; target.terrain = 'grass'; log(s, '採集地点が平地になりました。'); }
     }
   }
-  function hit(s, target, damage, source) { target.hp -= damage; s.effects.push({ kind: 'hit', source: source.kind || source.building?.kind, sourceId: source.id, targetId: target.id, damage, x: target.x, y: target.y, fromX: source.x, fromY: source.y, life: .3 }); }
+  function hit(s, target, damage, source) { target.hp -= damage; if(source.kind==='soldier')source.lastCombatAt=s.time;if(target.kind==='soldier')target.lastCombatAt=s.time;s.effects.push({ kind: 'hit', source: source.kind || source.building?.kind, sourceId: source.id, targetId: target.id, damage, x: target.x, y: target.y, fromX: source.x, fromY: source.y, life: .3 }); }
   function enemyTarget(s,enemy){
     // Units win exact-distance ties; all candidates share the same local radius.
     const candidates=[...s.units.filter(u=>u.hp>0&&distance(u,enemy)<4),...s.tiles.filter(t=>t.building?.kind==='tower'&&t.building.hp>0&&distance(t,enemy)<4)];
@@ -591,6 +608,7 @@
     if (s.result || s.phase!=='running' || s.backgroundPaused || dt <= 0) return;
     collisionContexts.set(s,{grid:new Map(),keys:new Map()});for(const u of bodies(s))trackBody(s,u);
     dt = Math.min(dt, .1); s.time += dt;
+    updateEnemyStrength(s);
     // Modest Keep income ensures rebuilding remains possible after losses.
     s.resources.food += .3 * dt; s.resources.wood += .3 * dt;
     for (const t of s.tiles) if (t.building && t.building.hp > 0) {
@@ -612,6 +630,11 @@
         if(e.kind==='dragon'&&!target.building&&collisionEnabled(target))move(s,e,[index(Math.round(target.x),Math.round(target.y))],1,dt,target,0);
       } else { const id = index(Math.max(0, Math.min(19, Math.round(target.x))), Math.max(0, Math.min(19, Math.round(target.y)))); move(s, e, [id], e.kind === 'dragon' ? 1 : 1.35, dt); }
     }
+    // Evaluate after enemy attacks: a Soldier cannot heal immediately before a hit.
+    if(s.tiles[s.keepId].building.hp>0&&!s.enemies.some(e=>e.kind==='dragon'&&e.hp<=0))for(const u of s.units)if(u.kind==='soldier'&&u.hp>0&&!s.enemies.some(e=>e.hp>0&&inMelee(u,e))){
+      const recoveryTime=Math.max(0,s.time-Math.max(s.time-dt,(u.lastCombatAt??-Infinity)+3));
+      u.hp=Math.min(u.maxHp,u.hp+recoveryTime);
+    }
     for (const e of s.enemies.filter(e => e.hp <= 0)) { s.kills++; s.resources.gold += e.kind === 'dragon' ? 150 : 6; if (e.kind === 'dragon') { s.result = 'victory'; log(s, 'Dragon討伐！王国に平和が戻った。', 'reward'); } }
     s.enemies = s.enemies.filter(e => e.hp > 0);
     for (const u of s.units.filter(u => u.hp <= 0)) { s.stats.lost[u.kind]++; if (u.task) { const task = s.tasks.find(t => t.id === u.task); if (task) task.workerId = null; } }
@@ -620,6 +643,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

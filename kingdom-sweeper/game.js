@@ -115,7 +115,7 @@
     const pop=E.population(world);$('population').textContent=`${pop.used} / ${pop.cap}`;
     const keep=world.tiles[world.keepId].building;$('keep-hp').textContent=`${Math.max(0,Math.ceil(keep.hp))} / ${keep.maxHp}`;$('keep-bar').style.width=`${Math.max(0,keep.hp/keep.maxHp)*100}%`;
     $('army').textContent=`Worker ${world.units.filter(u=>u.kind==='worker').length} ・ Soldier ${world.units.filter(u=>u.kind==='soldier').length}`;
-    $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400`;
+    $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400 · 敵 ×${E.enemyMultiplier(world).toFixed(2)}`;
     $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.phase==='ready'?'開始前・準備できます':world.backgroundPaused?'非表示タブ・自動停止':world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : '通常速度で進行中';
     $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
     $('raid-status').textContent=world.time<E.RAID_RULES.first?`定期出撃まで最短 ${Math.ceil(E.RAID_RULES.first-world.time)}秒（ゲーム内）。全域の未封印拠点・誤旗が対象。`:`定期出撃中：各地点60秒周期。出撃累計 ${world.raids.spawned}体 / 奇襲失敗 ${world.raids.ambushes}回。旗の正誤は非表示。`;
@@ -127,7 +127,7 @@
     $('guide-step').textContent=`王国づくり ${guideStage+1} / 6`;$('guide-title').textContent=world.result?'戦いが終わりました':goals[guideStage][0];$('guide-text').textContent=goals[guideStage][1];
     $('threat').hidden=!world.enemies.length;const nearestEnemy=[...world.enemies].sort((a,b)=>Math.hypot(a.x-10,a.y-10)-Math.hypot(b.x-10,b.y-10))[0];
     if(nearestEnemy){const dx=nearestEnemy.x-10,dy=nearestEnemy.y-10;$('threat').textContent=`⚠ ${Math.hypot(dx,dy)<2?'王城付近で交戦':`${Math.abs(dx)>Math.abs(dy)?dx>0?'東':'西':dy>0?'南':'北'}方面に敵`} ${world.enemies.length}体 · 押して現場へ`;}
-    const dragon=world.enemies.find(e=>e.kind==='dragon');$('boss').hidden=!dragon;if(dragon){$('boss-hp').textContent=`${Math.ceil(dragon.hp)} / ${dragon.maxHp}`;$('boss-bar').max=dragon.maxHp;$('boss-bar').value=dragon.hp;}
+    const dragon=world.enemies.find(e=>e.kind==='dragon');$('boss').hidden=!dragon;if(dragon){$('boss-hp').textContent=`${Math.ceil(dragon.hp)} / ${Math.ceil(dragon.maxHp)}`;$('boss-bar').max=dragon.maxHp;$('boss-bar').value=dragon.hp;}
     fitMap();
     $('start-run').hidden=world.phase!=='ready'||Boolean(world.result);
     $('run-state').hidden=world.phase==='ready';

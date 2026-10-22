@@ -75,3 +75,4 @@ main{padding-top:6px}
   .play-hud .map-controls button{min-width:44px}
 }
 @media(max-width:360px){.play-hud .run-controls{justify-content:space-between}.run-controls button{min-height:44px}}
+.map-heading{flex-wrap:wrap}

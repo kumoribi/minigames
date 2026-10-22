@@ -1,9 +1,10 @@
 'use strict';
 const assert = require('node:assert/strict');
 const Engine = require('./engine.js');
-// Historical scenarios supply their own orders; isolate them from auto-generated
-// work. Production defaults and auto-zero integration are exercised separately.
-const E = {...Engine,create(seed,options={}){const s=Engine.create(seed,{...options,autoZero:false});Engine.start(s);return s;}};
+// Historical scenarios supply orders and reveal whole maps to isolate mechanics.
+// Disable auto work/territory growth only in this helper; production defaults and
+// growth/auto-zero integration are exercised separately below.
+const E = {...Engine,create(seed,options={}){const s=Engine.create(seed,{...options,autoZero:false,enemyGrowth:false});Engine.start(s);return s;}};
 let checks = 0;
 function test(name, fn) { fn(); checks++; console.log('PASS', name); }
 function advance(s, seconds) { for (let t = 0; t < seconds; t += .05) E.tick(s, .05); }
@@ -451,7 +452,7 @@ test('Twenty Soldiers arrive around the rally without shared staging deadlock or
   const spots=s.units.filter(u=>u.rallySpot).map(u=>`${u.rallySpot.x},${u.rallySpot.y}`);assert.equal(new Set(spots).size,20);
 });
 test('Circular bodies use visible PNG content size and allow diagonals outside the circle',()=>{
-  const expected={worker:90*42/128,soldier:82*50/128,goblin:101*50/128,dragon:188*108/192};
+  const expected={worker:90*42/128,soldier:82*50/128*.8,goblin:101*50/128,dragon:188*108/192};
   for(const [kind,diameter] of Object.entries(expected))assert(Math.abs(E.bodyRadius({kind})*112-diameter)<1e-10);
   const a={kind:'worker',hp:55,x:0,y:0},b={...a,x:.4,y:.4};assert(!E.overlaps(a,b));b.x=b.y=.35;assert(E.overlaps(a,b));
   b.x=E.bodyRadius(a)*2;b.y=0;assert(!E.overlaps(a,b));
@@ -623,6 +624,77 @@ test('Dense friendly chains remain separated on every emergence/combat step acro
   for(let seed=0;seed<10;seed++){
     const s=pushFixture();for(let i=0;i<12;i++){const a=soldier(s,5+seed%2,5);assert(E.placeBody(s,a,a));a.cooldown=Infinity;s.units.push(a);}
     awakenAt(s,5,5);simulateTraffic(s,5);assert.equal(s.pendingSpawns.length,0);assert.equal(s.enemies.filter(e=>e.kind==='dragon').length,1);
+  }
+});
+function growthFixture(count=9){
+  const s=Engine.create(42,{autoZero:false});Engine.start(s);s.units=[];s.enemies=[];s.tasks=[];
+  s.tiles.forEach((t,i)=>{t.revealed=i<count;t.danger=0;t.terrain='grass';t.amount=0;t.nextRaidAt=Infinity;});
+  s.tiles[s.keepId].building.cooldown=Infinity;return s;
+}
+function stepExact(s,seconds,dt=.05){for(let elapsed=0;elapsed<seconds-1e-9;){const step=Math.min(dt,seconds-elapsed);Engine.tick(s,step);elapsed+=step;}}
+test('Production territory scaling runs smoothly from 9 cells at 1x to 400 at 5x, flags/reservations do not count',()=>{
+  const s=growthFixture();for(const n of [0,9,100,200,300,400]){
+    s.tiles.forEach((t,i)=>{t.revealed=i<n;t.flag=!t.revealed;});assert(Math.abs(Engine.enemyMultiplier(s)-(1+4*Math.max(0,n-9)/391))<1e-10);
+  }
+  s.tiles.forEach((t,i)=>t.revealed=i<9);assert.equal(Engine.enemyMultiplier(s),1);
+  s.tasks.push({kind:'explore',tileId:19});assert.equal(Engine.enemyMultiplier(s),1);
+});
+test('New normal/ambush/Dragon spawns use the revealed count including the just-opened cell',()=>{
+  for(const kind of ['normal','ambush','dragon']){
+    const s=growthFixture(399),tile=s.tiles[399];tile.danger=kind==='dragon'?3:1;tile.flag=kind==='normal';
+    Engine.reveal(s,399,{assault:kind==='normal'});assert.equal(Engine.enemyMultiplier(s),5);
+    const all=[...s.enemies,...s.pendingSpawns.map(p=>p.enemy)],factor=kind==='ambush'?10:5;
+    assert(all.length>0);for(const e of all){assert.equal(e.maxHp,(kind==='dragon'?1200:48)*factor);assert.equal(e.attack,(kind==='dragon'?28:7)*factor);assert.equal(e.hp,e.maxHp);}
+  }
+});
+test('Existing and pending enemies scale once, preserving wounded HP fraction and dead enemies',()=>{
+  const s=growthFixture(),a=goblin(s,8,8),b=goblin(s,6,6),dead=goblin(s,0,0);a.hp=24;b.hp=12;dead.hp=0;
+  s.enemies=[a,dead];s.pendingSpawns=[{enemy:b,origin:{x:6,y:6}}];
+  s.tiles.forEach(t=>t.revealed=true);Engine.tick(s,.05);
+  assert.equal(a.maxHp,240);assert.equal(a.hp,120);assert.equal(a.attack,35);assert.equal(b.hp,60);assert.equal(b.maxHp,240);assert.equal(dead.hp,0);
+  stepExact(s,.5);assert.equal(a.maxHp,240);assert.equal(a.hp,120);assert.equal(a.attack,35);
+});
+test('Real opening updates existing enemies immediately; a new kingdom resets scaling',()=>{
+  const s=growthFixture(),a=goblin(s,8,8);s.enemies=[a];Engine.reveal(s,9);
+  assert(Math.abs(a.maxHp-48*(1+4/391))<1e-9);assert.equal(a.hp,a.maxHp);
+  const fresh=Engine.create(42);assert.equal(Engine.enemyMultiplier(fresh),1);
+});
+test('Soldier collision diameter is 80 percent while visual size and other bodies remain unchanged',()=>{
+  assert.equal(Engine.UNIT_VISUALS.soldier.size,50);assert(Math.abs(Engine.BODY_RADIUS.soldier-(82*50/128/112)*.8)<1e-12);
+  for(const [kind,radius] of Object.entries({worker:90*42/128/112,goblin:101*50/128/112,dragon:188*108/192/112}))assert(Math.abs(Engine.BODY_RADIUS[kind]-radius)<1e-12);
+});
+test('Idle/moving Soldiers regenerate one HP per second independent of dt, cap at their own max; Workers never heal',()=>{
+  for(const dt of [.02,.05,.1]){
+    const s=pushFixture(),a=soldier(s,5,5),w=trafficWorker(s,8,8);a.hp=90;w.hp=40;s.units.push(a);
+    stepExact(s,10,dt);assert(Math.abs(a.hp-100)<1e-8);assert.equal(w.hp,40);assert(a.x!==5||a.y!==5);
+    a.hp=a.maxHp-.25;stepExact(s,1,dt);assert.equal(a.hp,a.maxHp);
+    a.maxHp=132;a.hp=131.5;stepExact(s,1,dt);assert.equal(a.hp,132);
+  }
+});
+test('Attack and damage reset the three-second recovery delay; contact prevents healing during cooldown',()=>{
+  for(const action of ['attack','damage']){
+    const s=pushFixture(),a=soldier(s,5,5),e=goblin(s,5.55,5);a.hp=90;a.cooldown=action==='attack'?0:Infinity;e.cooldown=action==='damage'?0:Infinity;s.units=[a];s.enemies=[e];
+    Engine.tick(s,.05);assert.equal(a.lastCombatAt,s.time);const hp=a.hp;s.enemies=[];a.cooldown=Infinity;
+    stepExact(s,3);assert(Math.abs(a.hp-hp)<1e-9);stepExact(s,1);assert(Math.abs(a.hp-hp-1)<1e-9);
+  }
+  const s=pushFixture(),a=soldier(s,5,5),e=goblin(s,5.55,5);a.hp=90;a.cooldown=e.cooldown=Infinity;s.units=[a];s.enemies=[e];stepExact(s,5);assert.equal(a.hp,90);
+});
+test('Ready/background/result states do not heal; dead Soldiers cannot revive',()=>{
+  const s=Engine.create(42,{autoZero:false}),a=soldier(s,10,10);s.units=[a];a.hp=90;stepExact(s,1);assert.equal(a.hp,90);
+  Engine.start(s);Engine.setBackgroundPaused(s,true);stepExact(s,1);assert.equal(a.hp,90);Engine.setBackgroundPaused(s,false);
+  s.result='victory';stepExact(s,1);assert.equal(a.hp,90);s.result=null;a.hp=0;Engine.tick(s,.05);assert.equal(a.hp,0);assert(!s.units.includes(a));
+});
+test('Combined production growth, smaller bodies and recovery retain separation during Dragon combat',()=>{
+  for(const count of [100,200,300,400]){
+    const s=pushFixture();s.enemyGrowth=true;
+    // Keep a connected combat area, with exactly count revealed cells.
+    const area=s.tiles.filter(t=>t.x>=3&&t.x<=13&&t.y>=3&&t.y<=10),ids=new Set(area.map(t=>t.id));
+    for(const t of s.tiles)if(ids.size<count)ids.add(t.id);
+    s.tiles.forEach(t=>t.revealed=ids.has(t.id));
+    for(let i=0;i<8;i++)addSoldier(s,8,6);
+    awakenAt(s,5,5);simulateTraffic(s,8);assert.equal(s.pendingSpawns.length,0);
+    const dragon=s.enemies.find(e=>e.kind==='dragon');assert(dragon);assert(Math.abs(dragon.maxHp-1200*Engine.enemyMultiplier(s))<1e-8);
+    assert(s.units.every(u=>u.hp>0&&u.hp<=u.maxHp));
   }
 });
 console.log(`${checks} scenarios passed.`);
