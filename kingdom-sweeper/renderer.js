@@ -246,6 +246,12 @@
         else slash.beginPath().arc(0, 0, effect.source === 'dragon' ? 29 : 20, -2.6, .3).strokePath();
         this.own(slash, quiet ? 160 : 280, quiet ? {} : { angle: 32 });
         burst(effect.source === 'dragon' ? 'fire' : 'gold', effect.source === 'dragon' ? 12 : 5);
+      } else if (effect.kind === 'push' || effect.kind === 'dragon-emerge') {
+        const emerging=effect.kind==='dragon-emerge',radius=emerging?52:14;
+        const ring=scene.add.graphics().setPosition(x,y).setDepth(6501).lineStyle(emerging?4:2,0xffc07a,.8).strokeCircle(0,0,radius);
+        this.own(ring,quiet?160:emerging?650:300,quiet?{}:{scaleX:1.5,scaleY:1.5});
+        burst('dust',emerging?28:5);
+        if(emerging){burst('fire',18);this.label(x,y-65,'Dragon 出現！','#ffb296',quiet,1000);}
       } else if (effect.kind === 'destroy') {
         burst('dust',18);burst('fire',8);this.label(x,y-28,'監視塔破壊','#ffb296',quiet,900);
       } else if (effect.kind === 'build') {

@@ -65,12 +65,70 @@
   }
   function circlesOverlap(a,b) { return distance(a,b)<bodyRadius(a)+bodyRadius(b)-1e-7; }
   function overlaps(a,b) { return collisionEnabled(a)&&collisionEnabled(b)&&circlesOverlap(a,b); }
-  function canStand(s,u,p) {
+  function validGround(s,u,p) {
     const h=bodyRadius(u);
     if(p.x<h-.5||p.y<h-.5||p.x>SIZE-.5-h||p.y>SIZE-.5-h)return false;
     if((u.kind==='worker'||u.kind==='soldier')&&!s.tiles[index(Math.round(p.x),Math.round(p.y))]?.revealed)return false;
+    return true;
+  }
+  function canStand(s,u,p) {
+    if(!validGround(s,u,p))return false;
+    const h=bodyRadius(u);
+    // Reserve an emerging Dragon's circle, while allowing units inside to leave.
+    if((u.kind==='worker'||u.kind==='soldier')&&s.pendingSpawns.some(q=>q.enemy.kind==='dragon'&&distance(p,q.origin)<h+bodyRadius(q.enemy)&&distance(p,q.origin)<distance(u,q.origin)-1e-7))return false;
     // Also validates a non-solid waiting Worker's position BEFORE restoring it.
     return !nearbyBodies(s,p).some(other=>other!==u&&distance(p,other)<h+bodyRadius(other)-1e-7);
+  }
+  const pushable=u=>collisionEnabled(u)&&(u.kind==='worker'||u.kind==='soldier');
+  function pushFeedback(s,moved) {
+    for(const u of moved){
+      u.detour=null;u.navKey=null;u.rallySpot=null;u.workSpot=null;
+      if((u.lastPushEffectAt??-Infinity)+.25<=s.time){
+        s.effects.push({kind:'push',x:u.x,y:u.y,life:.35});u.lastPushEffectAt=s.time;
+      }
+    }
+  }
+  // Transactional short displacements: a blocked chain is rolled back in full.
+  function pushBodies(s,dragon,point,initial=null) {
+    const saved=new Map(),visiting=new Set();
+    const shift=(u,p,depth=0)=>{
+      if(depth>8||visiting.has(u)||!pushable(u)||!validGround(s,u,p))return false;
+      const old=saved.get(u)||{x:u.x,y:u.y};
+      if(distance(old,p)>.16)return false;
+      if(!saved.has(u))saved.set(u,old);visiting.add(u);
+      for(const other of nearbyBodies(s,p))if(other!==u&&other!==dragon&&distance(p,other)<bodyRadius(u)+bodyRadius(other)-1e-7){
+        const dx=other.x-p.x,dy=other.y-p.y,d=Math.hypot(dx,dy),angle=d>1e-7?Math.atan2(dy,dx):Math.atan2(other.y-point.y,other.x-point.x);
+        const amount=bodyRadius(u)+bodyRadius(other)-d+1e-6;
+        if(!shift(other,{x:other.x+Math.cos(angle)*amount,y:other.y+Math.sin(angle)*amount},depth+1))return false;
+      }
+      // Movement pushes must also clear the Dragon's proposed circle.
+      if(!initial&&distance(p,point)<bodyRadius(u)+bodyRadius(dragon)-1e-7)return false;
+      if(!canStand(s,u,p))return false;
+      u.x=p.x;u.y=p.y;trackBody(s,u);visiting.delete(u);return true;
+    };
+    let ok=true;
+    if(initial)ok=shift(initial.unit,initial.point);
+    else for(const u of nearbyBodies(s,point))if(u!==dragon&&distance(u,point)<bodyRadius(u)+bodyRadius(dragon)-1e-7){
+      const d=distance(u,point),angle=d>1e-7?Math.atan2(u.y-point.y,u.x-point.x):0;
+      const amount=bodyRadius(u)+bodyRadius(dragon)-d+1e-6;
+      if(!shift(u,{x:u.x+Math.cos(angle)*amount,y:u.y+Math.sin(angle)*amount})){ok=false;break;}
+    }
+    if(ok&&!initial)ok=canStand(s,dragon,point);
+    if(!ok){for(const [u,p] of saved){u.x=p.x;u.y=p.y;trackBody(s,u);}return false;}
+    pushFeedback(s,saved.keys());return true;
+  }
+  function emergeDragon(s,p,dt) {
+    const dragon=p.enemy,origin=p.origin;
+    for(const u of nearbyBodies(s,origin))if(pushable(u)){
+      const d=distance(u,origin),clearance=bodyRadius(u)+bodyRadius(dragon)+.01;
+      if(d>=clearance)continue;
+      const angle=d>1e-7?Math.atan2(u.y-origin.y,u.x-origin.x):u.id*2.399963;
+      const amount=Math.min(clearance-d,1.5*dt);
+      pushBodies(s,dragon,origin,{unit:u,point:{x:u.x+Math.cos(angle)*amount,y:u.y+Math.sin(angle)*amount}});
+    }
+    if(!canStand(s,dragon,origin))return false;
+    dragon.x=origin.x;dragon.y=origin.y;
+    s.effects.push({kind:'dragon-emerge',...origin,life:.8});return true;
   }
   function placeBody(s,u,origin) {
     // Deterministic nearby slots; no overlapping fallback when the exit is full.
@@ -278,7 +336,11 @@
       const boss = kind === 'dragon';
       const multiplier = empowered ? RAID_RULES.ambushMultiplier : 1;
       const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp: (boss ? 1200 : 48) * multiplier, maxHp: (boss ? 1200 : 48) * multiplier, attack: (boss ? 28 : 7) * multiplier, cooldown: 1.5, empowered };
-      if(placeBody(s,enemy,tile)){s.enemies.push(enemy);trackBody(s,enemy);}else s.pendingSpawns.push({enemy,origin:{x:tile.x,y:tile.y}});
+      const h=bodyRadius(enemy),origin=boss?{x:Math.max(h-.5,Math.min(SIZE-.5-h,tile.x)),y:Math.max(h-.5,Math.min(SIZE-.5-h,tile.y))}:{x:tile.x,y:tile.y};
+      if(boss?canStand(s,enemy,origin):placeBody(s,enemy,tile)){
+        if(boss){enemy.x=origin.x;enemy.y=origin.y;s.effects.push({kind:'dragon-emerge',...origin,life:.8});}
+        s.enemies.push(enemy);trackBody(s,enemy);
+      }else s.pendingSpawns.push({enemy,origin});
     }
   }
   function updateRaids(s) {
@@ -357,7 +419,7 @@
       let moved=false;
       for(const turn of [0,.45*sign,-.45*sign,.9*sign,-.9*sign,1.35*sign,-1.35*sign]){
         const p={x:u.x+Math.cos(angle+turn)*step,y:u.y+Math.sin(angle+turn)*step};
-        if(canStand(s,u,p)){u.x=p.x;u.y=p.y;trackBody(s,u);moved=true;break;}
+        if(canStand(s,u,p)||(u.kind==='dragon'&&validGround(s,u,p)&&pushBodies(s,u,p))){u.x=p.x;u.y=p.y;trackBody(s,u);moved=true;break;}
       }
       u.blocked=moved?0:(u.blocked||0)+dt;
       if(!moved&&u.blocked>.6){
@@ -541,12 +603,13 @@
       if (u.hp > 0) (u.kind === 'worker' ? updateWorker : updateSoldier)(s, u, dt);
     }
     updateRaids(s);
-    s.pendingSpawns=s.pendingSpawns.filter(p=>{if(!placeBody(s,p.enemy,p.origin))return true;s.enemies.push(p.enemy);trackBody(s,p.enemy);return false;});
+    s.pendingSpawns=s.pendingSpawns.filter(p=>{if(!(p.enemy.kind==='dragon'?emergeDragon(s,p,dt):placeBody(s,p.enemy,p.origin)))return true;s.enemies.push(p.enemy);trackBody(s,p.enemy);return false;});
     for (const e of s.enemies) if (e.hp > 0) {
       e.cooldown = Math.max(0, e.cooldown - dt);
       const target=enemyTarget(s,e);
       if (inMelee(e,target)) {
         if (!e.cooldown) { hitEnemyTarget(s,target,e);e.cooldown=e.kind==='dragon'?1.4:1.1; }
+        if(e.kind==='dragon'&&!target.building&&collisionEnabled(target))move(s,e,[index(Math.round(target.x),Math.round(target.y))],1,dt,target,0);
       } else { const id = index(Math.max(0, Math.min(19, Math.round(target.x))), Math.max(0, Math.min(19, Math.round(target.y)))); move(s, e, [id], e.kind === 'dragon' ? 1 : 1.35, dt); }
     }
     for (const e of s.enemies.filter(e => e.hp <= 0)) { s.kills++; s.resources.gold += e.kind === 'dragon' ? 150 : 6; if (e.kind === 'dragon') { s.result = 'victory'; log(s, 'Dragon討伐！王国に平和が戻った。', 'reward'); } }

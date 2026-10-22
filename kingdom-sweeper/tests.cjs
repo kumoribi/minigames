@@ -58,7 +58,7 @@ test('Soldiers automatically defeat Dragon; result blocks further orders',()=>{
   const dragon=s.tiles[s.dragonId],fighters=s.units.filter(u=>u.kind==='soldier');s.units=[];
   for(const u of fighters){assert(E.placeBody(s,u,{x:dragon.x,y:dragon.y}));s.units.push(u);}
   // Restore hidden boss, then awaken through the same reveal used by workers.
-  dragon.revealed=false;E.reveal(s,dragon.id);assert(s.dragonAwake);assert.equal(s.enemies.length,1);
+  dragon.revealed=false;E.reveal(s,dragon.id);assert(s.dragonAwake);assert.equal(s.enemies.length+s.pendingSpawns.length,1);
   advance(s,60);assert.equal(s.result,'victory');assert(!E.queueExplore(s,0));assert(!E.train(s,id,'soldier').ok);
 });
 test('Dragon attacks Keep; zero Keep HP produces defeat',()=>{
@@ -580,5 +580,49 @@ test('A flag cancels assigned automatic work and releases its Worker; results pr
   const worker=s.units.find(u=>u.id===job.workerId);assert(Engine.setFlag(s,job.tileId));assert(!s.tasks.includes(job));assert.equal(worker.task,null);assert(s.tiles[job.tileId].flag);
   Engine.queueSafeNeighbors(s,s.keepId,{automatic:true});assert(!s.tasks.some(q=>q.tileId===job.tileId));
   s.result='victory';const count=s.tasks.length;assert.equal(Engine.queueSafeNeighbors(s,s.keepId,{automatic:true}),0);assert.equal(s.tasks.length,count);
+});
+function pushFixture(){
+  const s=trafficFixture();s.units=[];s.enemies=[];s.tiles[s.keepId].building.cooldown=Infinity;
+  return s;
+}
+function awakenAt(s,x,y){const id=E.index(x,y);s.dragonId=id;s.tiles[id].revealed=false;s.tiles[id].danger=3;E.reveal(s,id);return s.enemies.find(e=>e.kind==='dragon')||s.pendingSpawns[0].enemy;}
+test('Dragon birth gradually clears nearby soldiers at the lair without extra damage or duplicate bosses',()=>{
+  const s=pushFixture();const a=soldier(s,5,5),b=soldier(s,5.6,5);s.units=[a,b];a.cooldown=b.cooldown=Infinity;
+  const boss=awakenAt(s,5,5);assert.equal(s.pendingSpawns.length,1);assert.equal(s.enemies.length,0);
+  const initial={x:a.x,y:a.y};E.tick(s,.05);assert(Math.hypot(a.x-initial.x,a.y-initial.y)<=.27);assert.equal(a.hp,110);
+  simulateTraffic(s,3);assert.equal(s.pendingSpawns.length,0);assert.equal(s.enemies.filter(e=>e.kind==='dragon').length,1);
+  assert.equal(boss.maxHp,1200);assert.equal(boss.attack,28);assert(s.effects.some(e=>e.kind==='push')||a.lastPushEffectAt!=null);
+});
+test('Dragon advances during melee, displacing a soldier while both retain normal attack clocks',()=>{
+  const s=pushFixture(),a=soldier(s,6.25,5);s.units=[a];a.cooldown=Infinity;
+  const boss=awakenAt(s,5,5);boss.cooldown=Infinity;
+  const start=a.x;simulateTraffic(s,1);assert(a.x>start+.3);assert(boss.x>5.3);assert.equal(a.hp,110);assert.equal(boss.hp,1200);
+  assert(a.lastPushEffectAt!=null);
+});
+test('A Worker can be pushed without losing its assigned job',()=>{
+  const s=pushFixture(),a=trafficWorker(s,5,5);s.units=[a];assert(E.queueBuild(s,E.index(7,5),'farm').ok);awakenAt(s,5,5);
+  // Background suspension must not run the push or spawn clearance.
+  E.setBackgroundPaused(s,true);const x=a.x;advance(s,1);assert.equal(a.x,x);E.setBackgroundPaused(s,false);
+  E.tick(s,.05);assertSeparated(s);assert.equal(a.hp,55);assert(a.lastPushEffectAt!=null);assert(a.task);assert(s.tasks.some(q=>q.id===a.task&&q.workerId===a.id));
+});
+test('Birth blocked by fog waits instead of teleporting units, then resumes when territory opens',()=>{
+  const s=pushFixture(),a=soldier(s,5,5);a.cooldown=Infinity;s.units=[a];
+  s.tiles.forEach(t=>t.revealed=t.id===E.index(5,5));awakenAt(s,5,5);
+  simulateTraffic(s,3);assert.equal(s.pendingSpawns.length,1);assert.equal(s.enemies.length,0);assert.equal(a.hp,110);
+  assert.equal(Math.round(a.x),5);assert.equal(Math.round(a.y),5);
+  for(const id of E.neighbors(E.index(5,5)))s.tiles[id].revealed=true;
+  simulateTraffic(s,3);assert.equal(s.pendingSpawns.length,0);assert.equal(s.enemies.length,1);
+});
+test('Birth does not push Goblins or non-solid waiting Workers; edge bosses remain inside the map',()=>{
+  const s=pushFixture(),g=goblin(s,5,5);g.cooldown=Infinity;s.enemies=[g];awakenAt(s,5,5);assert.equal(s.pendingSpawns.length,1);
+  E.tick(s,.05);assert.equal(s.pendingSpawns.length,1);assert(!g.lastPushEffectAt);
+  const t=pushFixture(),w=trafficWorker(t,0,0);w.waitingNonSolid='shelter';t.units=[w];awakenAt(t,0,0);
+  assert.equal(t.pendingSpawns.length,0);assert(!w.lastPushEffectAt);assertSeparated(t);
+});
+test('Dense friendly chains remain separated on every emergence/combat step across multiple seeds',()=>{
+  for(let seed=0;seed<10;seed++){
+    const s=pushFixture();for(let i=0;i<12;i++){const a=soldier(s,5+seed%2,5);assert(E.placeBody(s,a,a));a.cooldown=Infinity;s.units.push(a);}
+    awakenAt(s,5,5);simulateTraffic(s,5);assert.equal(s.pendingSpawns.length,0);assert.equal(s.enemies.filter(e=>e.kind==='dragon').length,1);
+  }
 });
 console.log(`${checks} scenarios passed.`);
