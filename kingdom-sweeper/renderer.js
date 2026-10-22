@@ -132,12 +132,12 @@
         this.tiles.set(tile.id, { key, objects, building });
       }
       this.drawOrders(world, options);
-      const alive = new Set(), moving = world.speed > 0 && !world.result && !world.pendingRewards.length && !document.hidden;
+      const alive = new Set(), moving = world.phase==='running' && !world.backgroundPaused && !world.result && !document.hidden;
       for (const unit of [...world.units, ...world.enemies]) {
         alive.add(unit.id); let view = this.units.get(unit.id);
         if (!view) {
           const size = SIZES[unit.kind], texture = scene.textures.exists(unit.kind) ? unit.kind : 'ks-missing';
-          const sprite = scene.add.image(0, size * .35, texture).setOrigin(.5, 1);
+          const sprite = scene.add.image(0, 0, texture).setOrigin(.5, .5);
           const scale = Math.min(size / sprite.width, size / sprite.height); sprite.setScale(scale);
           const shadow = scene.add.ellipse(0, 12, size * .6, 12, 0x071c16, .45);
           const hp = scene.add.graphics(), retreat = scene.add.text(0, -size * .65 - 14, '退避', { fontSize: '12px', color: '#ffd0aa', backgroundColor: '#193326' }).setOrigin(.5, 1).setVisible(false);
@@ -149,11 +149,10 @@
         const dx = unit.x - view.x, dy = unit.y - view.y;
         const walking = moving && Math.abs(dx) + Math.abs(dy) > .00001;
         view.x = unit.x; view.y = unit.y;
-        const offset = unit.kind === 'worker' ? (unit.id % 3 - 1) * 7 : (unit.id % 3 - 1) * 3;
-        view.container.setPosition((unit.x + .5) * CELL + offset, (unit.y + .5) * CELL).setDepth(1000 + unit.y * 10);
+        view.container.setPosition((unit.x + .5) * CELL, (unit.y + .5) * CELL).setDepth(1000 + unit.y * 10);
         const phase = scene.time.now / 90 + unit.id;
         const bob = !quiet && walking ? -Math.abs(Math.sin(phase)) * (unit.kind === 'dragon' ? 3 : 2.5) : 0;
-        view.sprite.setY(view.size * .35 + bob).setAngle(quiet ? 0 : (walking ? Math.sin(phase) * 3 : 0) + view.pose.kick);
+        view.sprite.setY(bob).setAngle(quiet ? 0 : (walking ? Math.sin(phase) * 3 : 0) + view.pose.kick);
         if (walking && Math.abs(dx) > .0001) view.sprite.setFlipX(dx < 0);
         view.hp.clear();
         if (unit.hp < unit.maxHp || unit.kind === 'dragon' || unit.empowered) {
@@ -165,7 +164,7 @@
       }
       for (const [id, view] of this.units) if (!alive.has(id)) {
         if (!quiet && this.visible(view.container.x, view.container.y)) {
-          const ghost = scene.add.image(view.container.x, view.container.y + view.size * .35, view.sprite.texture.key).setOrigin(.5, 1).setScale(view.scale).setFlipX(view.sprite.flipX).setTint(0x81937b).setDepth(6000);
+          const ghost = scene.add.image(view.container.x, view.container.y, view.sprite.texture.key).setOrigin(.5, .5).setScale(view.scale).setFlipX(view.sprite.flipX).setTint(0x81937b).setDepth(6000);
           this.own(ghost, 380, { y: ghost.y + 7, scaleY: view.scale * .65 });
         }
         scene.tweens.killTweensOf(view.pose); view.container.destroy(); this.units.delete(id);

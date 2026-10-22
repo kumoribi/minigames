@@ -35,6 +35,10 @@ main{padding-top:6px}
 .play-hud .keep-health small{white-space:nowrap}
 .hud-time{display:flex;gap:12px;white-space:nowrap;color:var(--gold);font-variant-numeric:tabular-nums}
 .workspace{margin-top:8px}
+.run-controls{display:flex;align-items:center;gap:6px;min-width:0}
+.run-controls button{white-space:nowrap;font-size:12px}
+#run-state{color:var(--gold);font-size:12px;font-weight:700;white-space:nowrap}
+#run-state[hidden],#start-run[hidden],#treasure-open[hidden]{display:none}
 .map-panel{scroll-margin-top:calc(var(--hud-height,150px) + 8px)}
 .map-heading{min-height:30px;padding:5px 10px}
 .map-heading>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -70,3 +74,4 @@ main{padding-top:6px}
   .play-hud .map-controls{justify-content:flex-end}
   .play-hud .map-controls button{min-width:44px}
 }
+@media(max-width:360px){.play-hud .run-controls{justify-content:space-between}.run-controls button{min-height:44px}}

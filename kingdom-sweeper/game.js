@@ -7,8 +7,8 @@
   let surveyWorld = null;
   const names = { grass: '平地', forest: '森林 / Wood', food: '食料 / Food', mine: '鉱山 / Gold', camp: 'ゴブリン拠点跡', lair: 'Dragonの巣' };
   const assets = {}, assetNames = ['grass','forest','food','mine','camp','lair','chest','keep','farm','house','barracks','tower','windmill','blacksmith','worker','soldier','goblin','dragon'];
-  let world = E.create(), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1, previousSpeed = 1;
-  let pointer = null, last = performance.now(), uiElapsed = 0, lastEvent = null, actionKey = '', queueKey = '', resultShown = false, confirmSpeed = 1;
+  let world = E.create(), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1;
+  let pointer = null, last = performance.now(), uiElapsed = 0, lastEvent = null, actionKey = '', queueKey = '', resultShown = false, rewardShown = null;
   const mobile = window.matchMedia('(max-width:760px)'), systemMotion = window.matchMedia('(prefers-reduced-motion:reduce)');
   let seenEffects = new WeakSet(), visualTime = 0, feedbackUntil = 0, resultAt = null, audio = null, guideStage = 0;
   $('motion').checked = systemMotion.matches;
@@ -37,26 +37,24 @@
   }));
   $('guide-toggle').addEventListener('click',()=>{const hide=!document.querySelector('.guide').classList.contains('collapsed');document.querySelector('.guide').classList.toggle('collapsed',hide);$('guide-toggle').textContent=hide?'案内を表示':'案内を隠す';$('guide-toggle').setAttribute('aria-expanded',String(!hide));});
   $('threat').addEventListener('click',()=>{const enemy=[...world.enemies].sort((a,b)=>Math.hypot(a.x-10,a.y-10)-Math.hypot(b.x-10,b.y-10))[0];if(enemy){selected=E.index(Math.max(0,Math.min(19,Math.round(enemy.x))),Math.max(0,Math.min(19,Math.round(enemy.y))));center(selected);render();}});
-  const helpSeenKey = 'kingdom-sweeper-help-v2';
-  let firstHelp = true, helpSpeed = 0;
+  const helpSeenKey = 'kingdom-sweeper-help-v3';
+  let firstHelp = true;
   try { firstHelp = localStorage.getItem(helpSeenKey) !== 'seen'; } catch (_) { /* Storage may be unavailable in private/file contexts. */ }
-  world.speed = 0;
   function openHelp(initial = false) {
-    if ($('help').open || world.result || world.pendingRewards.length) return;
-    helpSpeed = initial ? 0 : world.speed;
-    world.speed = 0; pointer = null; render(); $('help').showModal();
+    if ($('help').open || world.result) return;
+    if($('treasure').open)$('treasure').close();
+    pointer = null; render(); $('help').showModal();
   }
   $('help-open').addEventListener('click', () => openHelp());
   $('help-close').addEventListener('click', () => $('help').close());
   $('help').addEventListener('close', () => {
     try { localStorage.setItem(helpSeenKey, 'seen'); } catch (_) { /* Reading help must not depend on storage. */ }
-    setSpeed(document.hidden ? 0 : helpSpeed);
   });
   const costText = cost => Object.entries(cost).map(([key,n]) => `${key.toUpperCase()} ${n}`).join(' / ');
   const timeText = n => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2,'0')}`;
   function notice(message) { $('notice').textContent = message; $('feedback').textContent=message;$('feedback').hidden=false;feedbackUntil=visualTime+3; }
   function draw() { renderer.sync(world, { selected, buildKind, reduced: reduced() }); }
-  function setSpeed(speed) { if(world.result) return;world.speed=speed;if(speed) previousSpeed=speed;render(); }
+  $('start-run').addEventListener('click',()=>{if(E.start(world)){last=performance.now();render();notice('ゲーム開始。通常速度で進行します。ヘルプ・報酬選択中も戦闘は続きます。');}});
   function setMode(next,kind=null) {
     mode=next;buildKind=kind;
     document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
@@ -71,14 +69,15 @@
     const reward=world.pendingRewards[0];
     if (!reward || world.result) { if($('treasure').open)$('treasure').close();return; }
     if ($('help').open || $('confirm').open) return;
-    if ($('upgrade-choices').dataset.rewardId!==String(reward.id)) {
-      $('upgrade-choices').dataset.rewardId=reward.id;
+    const choiceKey=`${reward.id}:${E.rewardOptions(world).join(',')}:${Object.values(world.upgrades).join(',')}:${world.units.length}:${world.tiles.filter(t=>t.building?.hp>0).length}`;
+    if ($('upgrade-choices').dataset.rewardId!==choiceKey) {
+      $('upgrade-choices').dataset.rewardId=choiceKey;
       $('upgrade-choices').replaceChildren(...E.rewardOptions(world).map(kind=>{
         const spec=E.UPGRADES[kind];
         const b=document.createElement('button');b.type='button';b.dataset.upgrade=kind;b.dataset.rewardId=reward.id;
         const title=document.createElement('strong'),detail=document.createElement('span'),icon=document.createElement('img');icon.src=`assets/${kind==='outpost'?'tower':kind}.png`;icon.alt='';title.textContent=spec.name;
         if(kind==='outpost'){
-          detail.textContent='【建築支援・王国で1回限り】次の監視塔1棟：WOOD 60・GOLD 15 → 0。選択後は停止して配置を計画できます。開拓済み空き平地・敵から1.5マス以上・Worker建築8秒は必要。取消時は支援が戻り、資源は増えません。';
+          detail.textContent='【建築支援・王国で1回限り】次の監視塔1棟：WOOD 60・GOLD 15 → 0。時間は止まりません。開拓済み空き平地・敵から1.5マス以上・Worker建築8秒は必要。取消時は支援が戻り、資源は増えません。';
           b.append(icon,title,detail);return b;
         }
         const base={farm:1.6,soldier:16,tower:3}[kind],current=base*(1+world.upgrades[kind]*spec.step),next=current+base*spec.step;
@@ -86,18 +85,20 @@
         detail.textContent=`${spec.description} ｜ 基本${kind==='farm'?'生産':kind==='soldier'?'攻撃':'射程'} ${current.toFixed(2)} → ${next.toFixed(2)}${kind==='farm'?'/秒':kind==='tower'?'マス':''} ｜ 現在${count}${kind==='soldier'?'体':'棟'}（今後も有効）${kind==='farm'?'・風車分はさらに×1.25':kind==='soldier'?'・鍛冶兵はさらに×1.2':''}`;b.append(icon,title,detail);return b;
       }));
     }
-    if (!$('treasure').open) { pointer=null;$('treasure').showModal(); }
+    if (!$('treasure').open && rewardShown!==reward.id) { pointer=null;rewardShown=reward.id;$('treasure').showModal(); }
   }
-  $('treasure').addEventListener('cancel',e=>e.preventDefault());
+  $('treasure-close').addEventListener('click',()=>$('treasure').close());
+  $('treasure-open').addEventListener('click',()=>{rewardShown=null;renderReward();});
   $('upgrade-choices').addEventListener('click',e=>{
     const b=e.target.closest('[data-upgrade]');if(!b)return;
     const reward=world.pendingRewards[0];
     if(E.chooseUpgrade(world,Number(b.dataset.rewardId),b.dataset.upgrade)){
-      if(b.dataset.upgrade==='outpost'){world.speed=0;selected=reward.tileId;setMode('build','tower');sheet(null);center(selected);}
-      sound(true);render();notice(b.dataset.upgrade==='outpost'?'設営支援を獲得。停止中に空き平地へ塔を予約し、1×で建築を開始できます。':'王国強化を取得しました。');
+      if($('treasure').open)$('treasure').close();
+      if(b.dataset.upgrade==='outpost'){selected=reward.tileId;setMode('build','tower');sheet(null);center(selected);}
+      sound(true);render();notice(b.dataset.upgrade==='outpost'?'設営支援を獲得。空き平地に塔を予約してください。時間は止まりません。':'王国強化を取得しました。');
     }
   });
-  $('use-tower-support').addEventListener('click',()=>{if(world.result||!world.towerSupport.available)return;world.speed=0;setMode('build','tower');sheet(null);render();notice('支援の塔を建てる空き平地を選び、1×で建築を開始してください。');});
+  $('use-tower-support').addEventListener('click',()=>{if(world.result||!world.towerSupport.available)return;setMode('build','tower');sheet(null);render();notice('支援の塔を建てる空き平地を選んでください。時間は止まりません。');});
   function render() {
     if(surveyWorld!==world){
       surveyWorld=world;
@@ -115,20 +116,24 @@
     const keep=world.tiles[world.keepId].building;$('keep-hp').textContent=`${Math.max(0,Math.ceil(keep.hp))} / ${keep.maxHp}`;$('keep-bar').style.width=`${Math.max(0,keep.hp/keep.maxHp)*100}%`;
     $('army').textContent=`Worker ${world.units.filter(u=>u.kind==='worker').length} ・ Soldier ${world.units.filter(u=>u.kind==='soldier').length}`;
     $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400`;
-    $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.pendingRewards.length ? '宝箱の強化を選択中・停止' : world.speed===0 ? '停止中・予約できます' : world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : world.dragonAwake ? 'Dragonとの決戦' : '領土を広げ、軍備を整えよう';
+    $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.phase==='ready'?'開始前・準備できます':world.backgroundPaused?'非表示タブ・自動停止':world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : '通常速度で進行中';
     $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
     $('raid-status').textContent=world.time<E.RAID_RULES.first?`定期出撃まで最短 ${Math.ceil(E.RAID_RULES.first-world.time)}秒（ゲーム内）。全域の未封印拠点・誤旗が対象。`:`定期出撃中：各地点60秒周期。出撃累計 ${world.raids.spawned}体 / 奇襲失敗 ${world.raids.ambushes}回。旗の正誤は非表示。`;
     $('raid-summary').textContent=world.time<E.RAID_RULES.first?`出撃まで${Math.ceil(E.RAID_RULES.first-world.time)}秒`:`出撃中・累計${world.raids.spawned}体`;
     $('raid-summary').title=$('raid-status').textContent;
     const has=kind=>world.tiles.some(t=>t.building?.kind===kind),soldiers=world.units.filter(u=>u.kind==='soldier').length;
     if(has('farm'))guideStage=Math.max(guideStage,1);if(has('farm')&&has('barracks'))guideStage=Math.max(guideStage,2);if(soldiers>=3)guideStage=Math.max(guideStage,3);if(world.kills)guideStage=Math.max(guideStage,4);if(world.dragonAwake)guideStage=5;
-    const goals=[['農場で食料を安定させよう','停止中に農場・兵舎を予約。1:30以降、全域の未封印拠点から敵が出撃します。'],['兵舎を建てよう','兵舎を空き草地に建築。安全マスへの誤旗も敵を生むので、数字で推理しよう。'],['兵士を育成しよう','兵舎を選択 → 兵士育成。まず3体を目標に。旗なし拠点の開拓は強化部隊を招きます。'],['数字で敵拠点を封印しよう','正しい旗は出撃を封印。誤旗は出撃元。旗付きマスの攻略は選択情報から明示的に予約。'],['出撃を抑え、ドラゴンへ備えよう','正しい旗で出撃元を封印し、侵攻部隊を迎撃。旗付き拠点の計画攻略は通常部隊との戦い。'],['ドラゴンとの決戦','兵士は自動迎撃。定期出撃も続きます。襲撃表示から戦況を確認し、王城を守ろう。']];
+    const goals=[['農場で食料を安定させよう','開始前に農場・兵舎を予約し「ゲーム開始」。開始後の手動停止・倍速はありません。'],['兵舎を建てよう','兵舎を空き草地に建築。安全マスへの誤旗も敵を生むので、数字で推理しよう。'],['兵士を育成しよう','兵舎を選択 → 兵士育成。出口が混雑したら領土を広げ、集合地点を移して空間を確保。'],['数字で敵拠点を封印しよう','正しい旗は出撃を封印。誤旗は出撃元。旗付きマスの攻略は選択情報から明示的に予約。'],['出撃を抑え、ドラゴンへ備えよう','正しい旗で出撃元を封印し、侵攻部隊を迎撃。旗付き拠点の計画攻略は通常部隊との戦い。'],['ドラゴンとの決戦','兵士は自動迎撃。定期出撃も続きます。襲撃表示から戦況を確認し、王城を守ろう。']];
     $('guide-step').textContent=`王国づくり ${guideStage+1} / 6`;$('guide-title').textContent=world.result?'戦いが終わりました':goals[guideStage][0];$('guide-text').textContent=goals[guideStage][1];
     $('threat').hidden=!world.enemies.length;const nearestEnemy=[...world.enemies].sort((a,b)=>Math.hypot(a.x-10,a.y-10)-Math.hypot(b.x-10,b.y-10))[0];
     if(nearestEnemy){const dx=nearestEnemy.x-10,dy=nearestEnemy.y-10;$('threat').textContent=`⚠ ${Math.hypot(dx,dy)<2?'王城付近で交戦':`${Math.abs(dx)>Math.abs(dy)?dx>0?'東':'西':dy>0?'南':'北'}方面に敵`} ${world.enemies.length}体 · 押して現場へ`;}
     const dragon=world.enemies.find(e=>e.kind==='dragon');$('boss').hidden=!dragon;if(dragon){$('boss-hp').textContent=`${Math.ceil(dragon.hp)} / ${dragon.maxHp}`;$('boss-bar').max=dragon.maxHp;$('boss-bar').value=dragon.hp;}
     fitMap();
-    document.querySelectorAll('[data-speed]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.speed)===world.speed)));
+    $('start-run').hidden=world.phase!=='ready'||Boolean(world.result);
+    $('run-state').hidden=world.phase==='ready';
+    $('run-state').textContent=world.result?'終了':world.backgroundPaused?'タブ非表示':'通常速度';
+    $('treasure-open').hidden=!world.pendingRewards.length||Boolean(world.result);
+    $('treasure-open').textContent=`報酬 ${world.pendingRewards.length}件`;
     document.querySelectorAll('[data-build]').forEach(b=>b.classList.toggle('unaffordable',!E.canPay(world,E.buildCost(world,b.dataset.build))));
     document.querySelector('[data-build="tower"] small').textContent=world.towerSupport.available?'設営支援：資源費用0 / 8秒':costText(E.BUILDINGS.tower.cost);
     const support=world.towerSupport, reserved=world.tasks.filter(q=>q.supported).length;
@@ -138,6 +143,7 @@
     $('tile-title').textContent=`${b ? E.BUILDINGS[b.kind].name : t.revealed ? names[t.terrain] : '未探索'} (${t.x+1}, ${t.y+1})`;
     $('tile-description').textContent=t.revealed ? `周囲の初期危険度 ${t.clue}${b ? ` ・ HP ${Math.ceil(b.hp)}/${b.maxHp}` : ['forest','food','mine'].includes(t.terrain) ? ` ・ 残量 ${Math.ceil(t.amount)}` : ''}${b?.train.length ? ` ・ 育成待ち ${b.train.length}` : ''}` : `上下左右から開拓。${E.frontier(world,t.id) ? '今すぐ作業できます。' : '領土がつながるまで予約待機。'}${t.flag ? ' 旗あり：正解なら封印、誤旗なら出撃元。正誤は不明。' : ' 拠点を旗なしで開くと強化部隊（HP・攻撃2倍）。'}`;
     if(b?.supported||task?.supported)$('tile-description').textContent+=' ・ 設営支援の塔（資源費用0）';
+    if(b?.train[0]?.remaining===0)$('tile-description').textContent+=' ・ 出口が混雑：出現の空き待ち（費用の再支払いなし）';
     const k=buildKind || b?.kind;
     const forged=E.hasNeighbor(world,selected,'blacksmith',false);
     $('building-effects').textContent=({
@@ -212,18 +218,16 @@
   });
   for(const [kind,spec] of Object.entries(E.BUILDINGS))if(kind!=='keep'){const b=document.createElement('button');b.type='button';b.dataset.build=kind;b.setAttribute('aria-pressed','false');b.innerHTML=`<img src="assets/${kind}.png" alt=""><span>${spec.name.split(' / ')[1]}<small>${costText(spec.cost)}</small></span>`;b.addEventListener('click',()=>{setMode('build',kind);sheet(null);notice(`${spec.name.split(' / ')[1]}：空き草地を選んでください。`);});$('build-list').append(b);}
   document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
-  document.querySelectorAll('[data-speed]').forEach(b=>b.addEventListener('click',()=>setSpeed(Number(b.dataset.speed))));
   $('zoom-in').addEventListener('click',()=>setZoom(zoom+.2));$('zoom-out').addEventListener('click',()=>setZoom(zoom-.2));$('center').addEventListener('click',()=>{selected=world.keepId;center();render();});
-  document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.closest('button,input,select,textarea,dialog')){e.preventDefault();setSpeed(world.speed ? 0 : previousSpeed);}if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}}});
-  function restart(seed){world=E.create(seed);selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';previousSpeed=1;setMode('explore');setSpeed(0);center();render();}
+  document.addEventListener('keydown',e=>{if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}if(e.code==='Space')e.preventDefault();}});
+  function restart(seed){world=E.create(seed);selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;rewardShown=null;seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');center();render();}
   $('replay').addEventListener('click',()=>{const seed=world.seed;$('result').close();restart(seed);});
-  $('restart').addEventListener('click',()=>{confirmSpeed=world.speed;world.speed=0;$('confirm').showModal();render();});
-  $('cancel-restart').addEventListener('click',()=>{$('confirm').close();setSpeed(confirmSpeed);});
-  $('confirm').addEventListener('cancel',()=>setSpeed(confirmSpeed));
+  $('restart').addEventListener('click',()=>{$('confirm').showModal();render();});
+  $('cancel-restart').addEventListener('click',()=>$('confirm').close());
   $('confirm-restart').addEventListener('click',()=>{$('confirm').close();restart();});
   $('again').addEventListener('click',()=>{$('result').close();restart();});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){world.speed=0;if($('help').open)helpSpeed=0;render();}});
-  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;visualTime+=elapsed;let remaining=elapsed*world.speed;while(remaining>0&&!world.result&&!world.pendingRewards.length){const dt=Math.min(.05,remaining);E.tick(world,dt);for(const effect of world.effects)if(!seenEffects.has(effect)){seenEffects.add(effect);renderer.playEffect(effect);if(effect.kind==='build')sound(true);}remaining-=dt;}if(feedbackUntil<visualTime)$('feedback').hidden=true;uiElapsed+=elapsed;if(uiElapsed>.2||world.pendingRewards.length&&!$('treasure').open){render();uiElapsed=0;}if(resultAt!==null&&visualTime>=resultAt){resultAt=null;if($('treasure').open)$('treasure').close();if($('help').open)$('help').close();$('result').showModal();}draw();}
+  document.addEventListener('visibilitychange',()=>{E.setBackgroundPaused(world,document.hidden);last=performance.now();render();});
+  function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;visualTime+=elapsed;let remaining=elapsed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);for(const effect of world.effects)if(!seenEffects.has(effect)){seenEffects.add(effect);renderer.playEffect(effect);if(effect.kind==='build')sound(true);}remaining-=dt;}if(feedbackUntil<visualTime)$('feedback').hidden=true;uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}if(resultAt!==null&&visualTime>=resultAt){resultAt=null;for(const id of ['treasure','help','confirm'])if($(id).open)$(id).close();$('result').showModal();}draw();}
   Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(async results=>{
     renderer=new window.KingdomRenderer(canvas,assets,frame); await renderer.ready;
     last=performance.now(); $('loading').hidden=true;setZoom(zoom);center();render();draw();if(firstHelp)openHelp(true);

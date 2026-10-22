@@ -1,6 +1,8 @@
 'use strict';
 const assert = require('node:assert/strict');
-const E = require('./engine.js');
+const Engine = require('./engine.js');
+// Most historical fixtures exercise a running kingdom. Readiness is tested separately.
+const E = {...Engine,create(...args){const s=Engine.create(...args);Engine.start(s);return s;}};
 let checks = 0;
 function test(name, fn) { fn(); checks++; console.log('PASS', name); }
 function advance(s, seconds) { for (let t = 0; t < seconds; t += .05) E.tick(s, .05); }
@@ -17,25 +19,26 @@ test('100 seeds: 400 cells, safe start, exactly one dormant Dragon, correct clue
   }
   assert.deepEqual(E.create(42).tiles,E.create(42).tiles);
 });
-test('Pause freezes time, gathering, exploration; permits reservations',()=>{
-  const s=E.create(2); s.speed=0;
+test('Background suspension freezes time and permits reservations; foreground resumes',()=>{
+  const s=E.create(2); E.setBackgroundPaused(s,true);
   assert(E.queueExplore(s,E.index(8,10)));assert(!E.queueExplore(s,E.index(8,10)));
   advance(s,10);assert.equal(s.time,0);assert(!s.tiles[E.index(8,10)].revealed);
-  s.speed=1;advance(s,10);assert(s.tiles[E.index(8,10)].revealed);
+  E.setBackgroundPaused(s,false);advance(s,10);assert(s.tiles[E.index(8,10)].revealed);
 });
 test('Deep reservations wait for a connected path',()=>{
   const s=E.create(3),deep=E.index(7,10);E.queueExplore(s,deep);advance(s,10);assert(!s.tiles[deep].revealed);
   E.queueExplore(s,E.index(8,10));advance(s,15);assert(s.tiles[deep].revealed);
 });
 test('Building payment, cancellation refund, completion and Farm production',()=>{
-  const s=E.create(4),id=E.index(9,9);s.tiles[id].terrain='grass';s.speed=0;
+  const s=E.create(4),id=E.index(9,9);s.tiles[id].terrain='grass';E.setBackgroundPaused(s,true);
   assert(E.queueBuild(s,id,'farm').ok);assert.equal(s.resources.wood,70);
   assert(!E.queueBuild(s,id,'farm').ok);assert(E.cancelTask(s,id));assert.equal(s.resources.wood,100);
-  E.queueBuild(s,id,'farm');s.speed=1;advance(s,12);assert.equal(s.tiles[id].building.kind,'farm');
+  E.queueBuild(s,id,'farm');E.setBackgroundPaused(s,false);advance(s,12);assert.equal(s.tiles[id].building.kind,'farm');
   const food=s.resources.food;s.workerFocus='mine';advance(s,5);assert(s.resources.food-food>=9);
 });
 test('Barracks trains soldiers; reserved population and costs enforced',()=>{
   const s=E.create(5),id=E.index(9,9);s.tiles[id].terrain='grass';E.queueBuild(s,id,'barracks');advance(s,15);
+  s.tiles.forEach(t=>{if(Math.max(Math.abs(t.x-10),Math.abs(t.y-10))<=2)t.revealed=true;});
   s.resources={wood:1000,food:1000,gold:1000};
   for(let i=0;i<5;i++)assert(E.train(s,id,'soldier').ok);assert(!E.train(s,id,'soldier').ok);
   assert.equal(E.population(s).used,8);advance(s,40);assert.equal(s.units.filter(u=>u.kind==='soldier').length,5);
@@ -51,7 +54,8 @@ test('Soldiers automatically defeat Dragon; result blocks further orders',()=>{
   const s=E.create(7),id=E.index(9,9);s.tiles.forEach(t=>t.revealed=true);s.tiles[id].terrain='grass';
   E.queueBuild(s,id,'barracks');advance(s,12);s.resources={wood:1000,food:1000,gold:1000};
   for(let i=0;i<5;i++)E.train(s,id,'soldier');advance(s,40);
-  const dragon=s.tiles[s.dragonId];s.units.filter(u=>u.kind==='soldier').forEach(u=>{u.x=dragon.x;u.y=dragon.y;});
+  const dragon=s.tiles[s.dragonId],fighters=s.units.filter(u=>u.kind==='soldier');s.units=[];
+  for(const u of fighters){assert(E.placeBody(s,u,{x:dragon.x,y:dragon.y}));s.units.push(u);}
   // Restore hidden boss, then awaken through the same reveal used by workers.
   dragon.revealed=false;E.reveal(s,dragon.id);assert(s.dragonAwake);assert.equal(s.enemies.length,1);
   advance(s,60);assert.equal(s.result,'victory');assert(!E.queueExplore(s,0));assert(!E.train(s,id,'soldier').ok);
@@ -77,17 +81,18 @@ test('Windmill: eight neighbours, no stacking, destroyed/outside excluded',()=>{
 });
 test('Blacksmith: orthogonal only, birth-time bonus, no retroactivity/stacking',()=>{
   const s=E.create(11),id=E.index(9,9);s.tiles[id].building=fixtureBuilding('barracks');s.resources={food:1000,wood:1000,gold:1000};
+  s.tiles.forEach(t=>{if(Math.max(Math.abs(t.x-10),Math.abs(t.y-10))<=2)t.revealed=true;});
   E.train(s,id,'soldier');advance(s,8);const normal=s.units.find(u=>u.kind==='soldier');assert.equal(normal.attack,16);
   s.tiles[E.index(8,8)].building=fixtureBuilding('blacksmith');E.train(s,id,'soldier');advance(s,8);assert.equal(s.units.filter(u=>u.kind==='soldier').at(-1).attack,16);
   E.train(s,id,'soldier');s.tiles[E.index(9,8)].building=fixtureBuilding('blacksmith');s.tiles[E.index(8,9)].building=fixtureBuilding('blacksmith');advance(s,8);
   const forged=s.units.filter(u=>u.kind==='soldier').at(-1);assert.equal(forged.attack,19.2);assert.equal(forged.maxHp,132);assert.equal(normal.attack,16);
 });
-test('Treasure: freezes simulation, exact-once selection, queues multiple rewards',()=>{
+test('Treasure: simulation continues, selection is exact-once, multiple rewards queue',()=>{
   const s=E.create(12),id=E.index(8,10),before={...s.resources},reward=chest(s,id);
   assert.deepEqual(s.resources,{wood:before.wood+20,food:before.food+20,gold:before.gold+35});
-  const time=s.time,hp=s.tiles[s.keepId].building.hp;advance(s,10);assert.equal(s.time,time);assert.equal(s.tiles[s.keepId].building.hp,hp);
+  const time=s.time,hp=s.tiles[s.keepId].building.hp;advance(s,10);assert(s.time>time);assert.equal(s.tiles[s.keepId].building.hp,hp);
   const next=chest(s,E.index(8,9));assert(!E.chooseUpgrade(s,next,'farm'));assert(!E.chooseUpgrade(s,reward,'invalid'));
-  assert(E.chooseUpgrade(s,reward,'farm'));assert(!E.chooseUpgrade(s,reward,'tower'));advance(s,2);assert.equal(s.time,time);
+  assert(E.chooseUpgrade(s,reward,'farm'));assert(!E.chooseUpgrade(s,reward,'tower'));const runningTime=s.time;advance(s,2);assert(s.time>runningTime);
   assert(E.chooseUpgrade(s,next,'farm'));assert(Math.abs(E.farmRate(s,s.keepId)-2.4)<1e-9);advance(s,1);assert(s.time>time);
   E.reveal(s,id);assert.equal(s.pendingRewards.length,0);
 });
@@ -105,11 +110,12 @@ test('Tower upgraded range affects combat, Soldier upgrade affects existing comb
   const enemy={id:99,kind:'goblin',x:9,y:5.5,hp:100,maxHp:100,attack:0,cooldown:100};s.enemies=[enemy];
   advance(s,.1);assert.equal(enemy.hp,100);E.chooseUpgrade(s,chest(s,0),'tower');advance(s,.1);assert.equal(enemy.hp,86);
   const towerHit=s.effects.find(e=>e.kind==='hit');assert.equal(towerHit.sourceId,id);assert.equal(towerHit.targetId,enemy.id);
-  const u={id:111,kind:'soldier',x:9,y:5.5,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
+  const u={id:111,kind:'soldier',x:enemy.x+1.15,y:enemy.y,hp:110,maxHp:110,attack:16,cooldown:0};s.units=[u];
   E.chooseUpgrade(s,chest(s,1),'soldier');const hp=enemy.hp;advance(s,.05);assert(Math.abs(hp-enemy.hp-19.2)<1e-9);
   const soldierHit=s.effects.find(e=>e.sourceId===u.id);assert.equal(soldierHit.targetId,enemy.id);assert.equal(soldierHit.fromX,u.x);
 });
 const soldier = (s,x=10,y=10) => ({id:s.nextId++,kind:'soldier',x,y,hp:110,maxHp:110,attack:16,cooldown:0});
+function addSoldier(s,x=10,y=10){const u=soldier(s,x,y);assert(E.placeBody(s,u,{x,y}));s.units.push(u);return u;}
 const goblin = (s,x,y) => ({id:s.nextId++,kind:'goblin',x,y,hp:48,maxHp:48,attack:7,cooldown:1.5});
 test('Defense holds rally against distant enemies; pursue retains previous behavior',()=>{
   const s=E.create(30);s.tiles.forEach(t=>t.revealed=true);s.units=[soldier(s)];s.enemies=[goblin(s,17,10)];
@@ -119,16 +125,16 @@ test('Defense holds rally against distant enemies; pursue retains previous behav
 });
 test('Defense engages inside radius, returns after combat, and permits close self-defense',()=>{
   const s=E.create(31);s.tiles.forEach(t=>t.revealed=true);const u=soldier(s);s.units=[u];s.enemies=[goblin(s,12,10)];E.setArmyMode(s,'defend');
-  advance(s,4);assert.equal(s.enemies.length,0);advance(s,3);assert(Math.hypot(u.x-10,u.y-10)<.15);
-  u.x=17;const e=goblin(s,17,10);s.enemies=[e];advance(s,.1);assert.equal(e.hp,32);
-  s.enemies=[];advance(s,5);assert(Math.hypot(u.x-10,u.y-10)<.15);
+  advance(s,4);assert.equal(s.enemies.length,0);advance(s,3);assert(Math.hypot(u.x-10,u.y-10)<.2);
+  u.x=17;const e=goblin(s,18.2,10);s.enemies=[e];advance(s,.1);assert.equal(e.hp,32);
+  s.enemies=[];advance(s,5);assert(Math.hypot(u.x-10,u.y-10)<.2);
 });
 test('Prepared exploration waits without holding Workers; gathers and resumes when assembled',()=>{
-  const s=E.create(32),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');s.speed=0;
+  const s=E.create(32),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');E.setBackgroundPaused(s,true);
   assert(E.queuePreparedExplore(s,id,1));assert(!E.queuePreparedExplore(s,id,1));
-  advance(s,2);assert.equal(s.time,0);s.speed=1;advance(s,2);
+  advance(s,2);assert.equal(s.time,0);E.setBackgroundPaused(s,false);advance(s,2);
   assert(!s.tiles[id].revealed);assert(s.resources.gold>0);assert.equal(s.tasks[0].workerId,null);
-  s.units.push(soldier(s));advance(s,8);assert(s.tiles[id].revealed);assert(!s.tiles[id].flag);
+  addSoldier(s);advance(s,8);assert(s.tiles[id].revealed);assert(!s.tiles[id].flag);
 });
 test('Preparation validates visible plan only, count, range, mode, cancellation and reset',()=>{
   const s=E.create(33),id=E.index(8,10);s.tiles[id].flag=true;
@@ -136,13 +142,13 @@ test('Preparation validates visible plan only, count, range, mode, cancellation 
   for(const n of [0,-1,1.5,11,NaN])assert(!E.queuePreparedExplore(s,id,n));
   const far=E.index(0,0);s.tiles[far].flag=true;assert(!E.queuePreparedExplore(s,far,1));
   assert(E.queuePreparedExplore(s,id,2));const q=s.tasks[0];
-  s.units.push(soldier(s),soldier(s));assert.equal(E.preparationStatus(s,q),'');
+  addSoldier(s);addSoldier(s);assert.equal(E.preparationStatus(s,q),'');
   s.units.at(-1).hp=0;assert(E.preparationStatus(s,q));s.units.at(-1).hp=110;
   s.rally=E.index(11,11);assert(E.preparationStatus(s,q));assert(E.cancelTask(s,id));assert.equal(s.tasks.length,0);
   const fresh=E.create(33);assert.equal(fresh.armyMode,'pursue');assert.deepEqual(fresh.stats.lost,{worker:0,soldier:0});
 });
 test('Lost readiness interrupts assigned work, frees Worker, preserves remaining progress',()=>{
-  const s=E.create(34),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');s.units.push(soldier(s));E.queuePreparedExplore(s,id,1);
+  const s=E.create(34),id=E.index(8,10);s.tiles[id].flag=true;E.setArmyMode(s,'defend');addSoldier(s);E.queuePreparedExplore(s,id,1);
   advance(s,.5);const q=s.tasks[0];assert(q.workerId);const remaining=q.remaining;
   E.setArmyMode(s,'pursue');s.enemies=[goblin(s,9,10)];advance(s,.2);assert.equal(q.workerId,null);assert.equal(q.remaining,remaining);assert(!s.tiles[id].revealed);s.enemies=[];
   E.setArmyMode(s,'defend');advance(s,8);assert(s.tiles[id].revealed);
@@ -224,15 +230,15 @@ test('Previously paid tower reservation remains paid when support is acquired la
   E.chooseUpgrade(s,chest(s,0),'outpost');assert(E.cancelTask(s,id));assert.deepEqual(s.resources,{wood:before.wood+20,food:before.food+20,gold:before.gold+35});assert.equal(s.towerSupport.available,1);
 });
 test('Support tower requires Worker construction and unmodified stats; cancellation after progress restores stock',()=>{
-  const s=E.create(65),id=E.index(9,9);E.chooseUpgrade(s,chest(s,0),'outpost');s.tiles[id].terrain='grass';s.speed=0;E.queueBuild(s,id,'tower');advance(s,20);assert(!s.tiles[id].building);
-  s.speed=1;advance(s,3);assert(!s.tiles[id].building);assert(s.tasks[0].remaining<8);E.cancelTask(s,id);assert.equal(s.towerSupport.available,1);
+  const s=E.create(65),id=E.index(9,9);E.chooseUpgrade(s,chest(s,0),'outpost');s.tiles[id].terrain='grass';E.setBackgroundPaused(s,true);E.queueBuild(s,id,'tower');advance(s,20);assert(!s.tiles[id].building);
+  E.setBackgroundPaused(s,false);advance(s,3);assert(!s.tiles[id].building);assert(s.tasks[0].remaining<8);E.cancelTask(s,id);assert.equal(s.towerSupport.available,1);
   E.queueBuild(s,id,'tower');advance(s,12);const tower=s.tiles[id].building;assert.equal(tower.hp,300);assert(tower.supported);assert.equal(s.towerSupport.built,1);assert.equal(s.towerSupport.available,0);
   assert.equal(E.towerRange(s),3);assert.equal(E.BUILDINGS.tower.time,8);assert.equal(E.BUILDINGS.tower.cost.wood,60);assert.equal(s.stats.spent.wood,0);
 });
-test('Sequential treasure updates contextual choice; pending reward freezes building; new run resets support',()=>{
+test('Sequential treasure updates choices without freezing building; new run resets support',()=>{
   const s=E.create(66),first=chest(s,0),second=chest(s,1),id=E.index(9,9);s.tiles[id].terrain='grass';
   assert(!E.chooseUpgrade(s,second,'outpost'));assert(E.chooseUpgrade(s,first,'outpost'));assert(!E.chooseUpgrade(s,second,'outpost'));
-  E.queueBuild(s,id,'tower');const time=s.time,remaining=s.tasks[0].remaining;advance(s,10);assert.equal(s.time,time);assert.equal(s.tasks[0].remaining,remaining);
+  E.queueBuild(s,id,'tower');const time=s.time;advance(s,12);assert(s.time>time);assert(s.tiles[id].building);
   assert(E.chooseUpgrade(s,second,'soldier'));advance(s,12);assert(s.tiles[id].building);
   const fresh=E.create(66);assert.deepEqual(fresh.towerSupport,{claimed:0,available:0,built:0});assert.deepEqual(E.rewardOptions(fresh),['farm','soldier','outpost']);
   s.result='victory';assert(!E.chooseUpgrade(s,first,'outpost'));assert(!E.cancelTask(s,id));
@@ -247,7 +253,7 @@ function raidFixture() {
 test('Global raids: 100 seeds produce one raider per unsealed camp by 150s, without exploration',()=>{
   for(let seed=0;seed<100;seed++){
     const s=E.create(seed),clues=s.tiles.map(t=>t.clue),camps=s.tiles.filter(t=>t.danger===1).length;
-    s.time=149.95;E.tick(s,.05);assert.equal(s.enemies.length,camps);assert.equal(s.raids.spawned,camps);
+    s.time=149.95;E.tick(s,.05);assert.equal(s.enemies.length+s.pendingSpawns.length+s.kills,camps);assert.equal(s.raids.spawned,camps);
     assert.equal(s.tiles.filter(t=>t.revealed).length,9);assert(!s.dragonAwake);assert.deepEqual(s.tiles.map(t=>t.clue),clues);
     const sealed=E.create(seed);for(const t of sealed.tiles)if(t.danger===1)E.setFlag(sealed,t.id);
     sealed.time=149.95;E.tick(sealed,.05);assert.equal(sealed.enemies.length,0);
@@ -275,11 +281,11 @@ test('False flags spawn real normal enemies, removal stops future waves, clues r
   assert.deepEqual(s.tiles.map(t=>t.clue),clues);
   E.setFlag(s,0);E.reveal(s,0,{assault:true});advance(s,60);assert.equal(s.raids.spawned,1);assert(s.tiles[0].revealed);
 });
-test('Raid schedules freeze during pause, reward selection and results; speed does not double-apply',()=>{
-  const s=raidFixture();s.tiles[0].danger=1;s.time=89.95;s.speed=0;const due=s.tiles[0].nextRaidAt;
+test('Raids suspend only in background/results, not during reward selection; speed settings are ignored',()=>{
+  const s=raidFixture();s.tiles[0].danger=1;s.time=89.95;E.setBackgroundPaused(s,true);const due=s.tiles[0].nextRaidAt;
   advance(s,10);assert.equal(s.time,89.95);assert.equal(s.enemies.length,0);assert.equal(s.tiles[0].nextRaidAt,due);
-  s.speed=4;const reward=chest(s,1);advance(s,10);assert.equal(s.time,89.95);assert.equal(s.enemies.length,0);
-  E.chooseUpgrade(s,reward,'farm');E.tick(s,.05);assert.equal(s.enemies.length,1);assert.equal(s.time,90);
+  E.setBackgroundPaused(s,false);s.speed=4;const reward=chest(s,1);E.tick(s,.05);assert.equal(s.enemies.length,1);assert.equal(s.time,90);
+  const before=s.time;advance(s,1);assert(Math.abs(s.time-before-1)<1e-6);E.chooseUpgrade(s,reward,'farm');
   s.result='defeat';const time=s.time;advance(s,70);assert.equal(s.time,time);assert.equal(s.raids.spawned,1);assert(!E.setFlag(s,0));
 });
 test('Unflagged excavation has 2x HP/attack, same enemy count; flag alone is not an assault order',()=>{
@@ -329,14 +335,78 @@ test('Keep and a standalone tower fire independently with separate source IDs an
   const hits=s.effects.filter(e=>e.kind==='hit');assert.deepEqual(new Set(hits.map(h=>h.source)),new Set(['keep','tower']));
   assert.deepEqual(new Set(hits.map(h=>h.sourceId)),new Set([s.keepId,id]));advance(s,.5);assert.equal(e.hp,972);
 });
-test('Keep defense preserves HP, income, Worker training and stops with pause, treasure, destruction and result',()=>{
+test('Keep defense preserves HP, income and training; treasure continues but background/destruction/result stop it',()=>{
   const s=E.create(83);s.units=[];const keep=s.tiles[s.keepId].building,e=goblin(s,12,10);e.hp=e.maxHp=1000;e.attack=0;s.enemies=[e];
   assert.equal(keep.hp,900);assert.equal(keep.maxHp,900);assert(E.train(s,s.keepId,'worker').ok);const food=s.resources.food,wood=s.resources.wood;
-  s.speed=0;advance(s,2);assert.equal(e.hp,1000);assert.equal(keep.train[0].remaining,5);
-  s.speed=1;const reward=chest(s,0);advance(s,2);assert.equal(e.hp,1000);assert.equal(keep.train[0].remaining,5);E.chooseUpgrade(s,reward,'farm');
-  E.tick(s,.05);assert.equal(e.hp,986);assert(Math.abs(s.resources.food-(food+20+.015))<1e-9);assert(Math.abs(s.resources.wood-(wood+20+.015))<1e-9);
+  E.setBackgroundPaused(s,true);advance(s,2);assert.equal(e.hp,1000);assert.equal(keep.train[0].remaining,5);
+  E.setBackgroundPaused(s,false);const reward=chest(s,0);E.tick(s,.05);assert.equal(e.hp,986);assert(keep.train[0].remaining<5);E.chooseUpgrade(s,reward,'farm');
+  assert(Math.abs(s.resources.food-(food+20+.015))<1e-9);assert(Math.abs(s.resources.wood-(wood+20+.015))<1e-9);
   s.enemies=[];advance(s,5.1);assert.equal(s.stats.trained.worker,1);assert.equal(s.units[0].kind,'worker');
   s.units=[];s.enemies=[e];keep.cooldown=0;keep.hp=0;const hp=e.hp;E.tick(s,.05);assert.equal(e.hp,hp);assert.equal(s.result,'defeat');
   keep.hp=900;advance(s,2);assert.equal(e.hp,hp);
+});
+function assertSeparated(s){
+  const all=[...s.units,...s.enemies].filter(u=>u.hp>0);
+  for(let i=0;i<all.length;i++){
+    const a=all[i],h=E.bodyHalf(a);assert(Number.isFinite(a.x)&&Number.isFinite(a.y));
+    assert(a.x>=h-.5-1e-7&&a.y>=h-.5-1e-7&&a.x<=19.5-h+1e-7&&a.y<=19.5-h+1e-7);
+    for(let j=i+1;j<all.length;j++)assert(!E.overlaps(a,all[j]),`overlap ${a.id}/${all[j].id} at ${s.time}`);
+  }
+}
+test('Ready phase starts once; no manual speed/pause state; only background suspension and results stop ticks',()=>{
+  const s=Engine.create(90);assert.equal(s.phase,'ready');assert(!('speed'in s));advance(s,3);assert.equal(s.time,0);
+  assert(E.start(s));assert(!E.start(s));s.speed=0;advance(s,1);assert(Math.abs(s.time-1)<1e-8);
+  s.speed=4;advance(s,1);assert(Math.abs(s.time-2)<1e-8);E.setBackgroundPaused(s,true);advance(s,2);assert(Math.abs(s.time-2)<1e-8);
+  E.setBackgroundPaused(s,false);advance(s,1);assert(Math.abs(s.time-3)<1e-8);s.result='defeat';assert(!E.start(s));advance(s,2);assert(Math.abs(s.time-3)<1e-8);
+});
+test('100 seeds: initial Workers and camp/Dragon births have nonoverlapping bodies inside map bounds',()=>{
+  for(let seed=0;seed<100;seed++){
+    const s=E.create(seed);assertSeparated(s);const camp=s.tiles.find(t=>t.danger===1);E.reveal(s,camp.id);assertSeparated(s);
+    E.reveal(s,s.dragonId);assertSeparated(s);assert.equal(s.enemies.length+s.pendingSpawns.length,4+camp.id%3);
+  }
+});
+test('Congested training waits at the exit without losing payment, queue population or unit IDs; expands to resume',()=>{
+  const s=E.create(91);s.units=s.units.slice(0,1);s.units[0].x=10;s.units[0].y=10;
+  for(const t of s.tiles){t.revealed=t.id===s.keepId;t.terrain='grass';t.danger=0;}
+  s.tiles[s.keepId].building=fixtureBuilding('barracks');s.resources={food:1000,wood:1000,gold:1000};
+  assert(E.train(s,s.keepId,'soldier').ok);const next=s.nextId;advance(s,10);assert.equal(s.units.length,1);assert.equal(s.nextId,next);assert.equal(s.tiles[s.keepId].building.train[0].remaining,0);assert.equal(E.population(s).used,2);assert.equal(s.stats.spent.food,30);assert.equal(s.stats.spent.wood,15);assertSeparated(s);
+  for(const id of E.neighbors(s.keepId))s.tiles[id].revealed=true;
+  advance(s,.1);assert.equal(s.units.length,2);assert.equal(s.stats.trained.soldier,1);assert.equal(s.tiles[s.keepId].building.train.length,0);assertSeparated(s);
+});
+test('Full enemy spawn area queues Dragon instead of overlapping; free space permits the pending birth',()=>{
+  const s=E.create(92);s.units=[];s.enemies=[];s.tiles.forEach(t=>{t.revealed=true;t.danger=0;});
+  for(let y=1;y<=19;y+=1.15)for(let x=1;x<=19;x+=1.15)s.enemies.push(goblin(s,x,y));
+  const id=E.index(10,10);s.tiles[id].revealed=false;s.tiles[id].danger=3;E.reveal(s,id);assert.equal(s.pendingSpawns.length,1);assertSeparated(s);
+  s.enemies=s.enemies.filter(e=>Math.hypot(e.x-10,e.y-10)>3.5);E.tick(s,.05);assert.equal(s.pendingSpawns.length,0);assert(s.enemies.some(e=>e.kind==='dragon'));assertSeparated(s);
+});
+test('Workers yield around active jobs; resource gathering and connected exploration continue without overlaps',()=>{
+  for(const seed of [3,34,91]){
+    const s=E.create(seed),id=E.index(8,10);s.tiles[id].danger=0;s.tiles[id].terrain='grass';E.queueExplore(s,id);
+    const gold=s.resources.gold;
+    for(let i=0;i<400;i++){E.tick(s,.05);assertSeparated(s);}
+    assert(s.tiles[id].revealed);assert(s.resources.gold>gold);assert.equal(s.tasks.length,0);
+  }
+});
+test('Ten soldiers form a dispersed defensive rally and meet the widened assembly condition',()=>{
+  const s=E.create(93);s.tiles.forEach(t=>{t.revealed=true;t.danger=0;});s.units=[];E.setArmyMode(s,'defend');
+  for(let i=0;i<10;i++)addSoldier(s,5,5);
+  for(let i=0;i<1000;i++){E.tick(s,.05);assertSeparated(s);}
+  assert.equal(s.units.filter(u=>Math.hypot(u.x-10,u.y-10)<=3).length,10);
+  const id=E.index(12,10);s.tiles[id].revealed=false;E.setFlag(s,id);assert(E.queuePreparedExplore(s,id,10));assert.equal(E.preparationStatus(s,s.tasks[0]),'');
+});
+test('Contact combat against a large Dragon damages both sides without centre stacking',()=>{
+  const s=E.create(94);s.tiles.forEach(t=>{t.revealed=true;t.danger=0;});s.units=[];s.tiles[s.keepId].building.cooldown=Infinity;
+  for(let i=0;i<7;i++)addSoldier(s,10,10);
+  const id=E.index(15,10);s.tiles[id].revealed=false;s.tiles[id].danger=3;s.dragonId=id;E.reveal(s,id);
+  let soldierHit=false,dragonHit=false;
+  for(let i=0;i<1200&&!s.result;i++){E.tick(s,.05);assertSeparated(s);soldierHit||=s.effects.some(e=>e.source==='soldier');dragonHit||=s.effects.some(e=>e.source==='dragon');}
+  assert(soldierHit);assert(dragonHit);assert(s.kills||s.stats.lost.soldier);
+});
+test('Crowded mixed armies and raids retain separation on every simulation step',()=>{
+  const s=E.create(95);s.tiles.forEach(t=>{t.revealed=true;t.danger=0;});s.units=[];s.enemies=[];
+  for(let i=0;i<20;i++)addSoldier(s,7,10);
+  for(let i=0;i<20;i++){const e=goblin(s,13,10);assert(E.placeBody(s,e,e));s.enemies.push(e);}
+  for(let i=0;i<400&&!s.result;i++){E.tick(s,.05);assertSeparated(s);}
+  assert(s.kills>0);assert(s.stats.lost.soldier>0||s.units.some(u=>u.hp<u.maxHp));
 });
 console.log(`${checks} scenarios passed.`);
