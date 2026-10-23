@@ -7,7 +7,10 @@
   let surveyWorld = null;
   const names = { grass: '平地', forest: '森林 / Wood', food: '食料 / Food', mine: '鉱山 / Gold', camp: 'ゴブリン拠点跡', lair: 'Dragonの巣' };
   const assets = {}, assetNames = ['grass','forest','food','mine','camp','lair','chest','keep','farm','house','barracks','tower','windmill','blacksmith','worker','soldier','goblin','dragon'];
-  let world = E.create(), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1;
+  const autoZeroStorageKey='kingdom-sweeper-auto-zero-v1';
+  let autoZeroPreference=true;
+  try{autoZeroPreference=localStorage.getItem(autoZeroStorageKey)!=='false';}catch(_){/* Use ON when storage is unavailable. */}
+  let world = E.create(undefined,{autoZero:autoZeroPreference}), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1;
   let pointer = null, last = performance.now(), uiElapsed = 0, lastEvent = null, actionKey = '', queueKey = '', resultShown = false, rewardShown = null;
   const mobile = window.matchMedia('(max-width:760px)'), systemMotion = window.matchMedia('(prefers-reduced-motion:reduce)');
   let seenEffects = new WeakSet(), visualTime = 0, feedbackUntil = 0, resultAt = null, audio = null, guideStage = 0;
@@ -31,6 +34,13 @@
   $('queue-open').addEventListener('click',()=>sheet('queue'));
   $('explore-clear-all').addEventListener('click',()=>{const count=E.cancelAllExploration(world);render();notice(`開拓予約を${count}件解除しました。建築・育成予約は維持します。`);});
   $('zero-explore-all').addEventListener('click',()=>{const count=E.queueAllZeroNeighbors(world);render();notice(`表示済みの0周辺を${count}件予約しました。Workerが順番に開拓します。`);});
+  $('auto-zero').addEventListener('change',()=>{
+    const enabled=$('auto-zero').checked,result=E.setAutoZero(world,enabled);
+    if(!result.ok){render();return;}
+    autoZeroPreference=enabled;let saved=true;
+    try{localStorage.setItem(autoZeroStorageKey,String(enabled));}catch(_){saved=false;}
+    render();notice((enabled?`0周辺の自動開拓をON：${result.added}件追加しました。`:`0周辺の自動開拓をOFF：自動予約${result.removed}件を解除しました。手動予約は維持します。`)+(saved?'':' 設定を保存できないため、再読み込み後は維持されません。'));
+  });
   document.querySelectorAll('[data-dock]').forEach(b=>b.addEventListener('click',()=>{
     const action=b.dataset.dock;
     if(action==='build'){sheet('build');return;}
@@ -179,6 +189,8 @@
     if(task) actions+=button('cancel','この予約を取り消す');
     if(actions!==actionKey){$('tile-actions').innerHTML=actions;actionKey=actions;}
     $('queue-count').textContent=world.tasks.length;
+    $('auto-zero').checked=world.autoZero;$('auto-zero').disabled=Boolean(world.result);
+    $('auto-zero-state').textContent=world.autoZero?'ON':'OFF';
     $('explore-clear-all').disabled=Boolean(world.result)||!world.tasks.some(q=>q.kind==='explore');
     $('zero-explore-all').disabled=Boolean(world.result)||!world.tiles.some(t=>t.revealed&&t.clue===0);
     $('queue-open').textContent=`作業予約 ${world.tasks.length}件を確認`;
@@ -225,7 +237,7 @@
   document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
   $('zoom-in').addEventListener('click',()=>setZoom(zoom+.2));$('zoom-out').addEventListener('click',()=>setZoom(zoom-.2));$('center').addEventListener('click',()=>{selected=world.keepId;center();render();});
   document.addEventListener('keydown',e=>{if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}if(e.code==='Space')e.preventDefault();}});
-  function restart(seed){world=E.create(seed);selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;rewardShown=null;seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');center();render();}
+  function restart(seed){world=E.create(seed,{autoZero:autoZeroPreference});selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;rewardShown=null;seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');center();render();}
   $('replay').addEventListener('click',()=>{const seed=world.seed;$('result').close();restart(seed);});
   $('restart').addEventListener('click',()=>{$('confirm').showModal();render();});
   $('cancel-restart').addEventListener('click',()=>$('confirm').close());

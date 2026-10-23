@@ -296,7 +296,7 @@
   }
   function queueExplore(s, id, { assault = false, automatic = false } = {}) {
     const t = s.tiles[id]; if (s.result || !t || t.revealed || hasTask(s, id) || (t.flag && !assault) || (assault && !t.flag)) return false;
-    if(automatic&&t.autoExploreSuppressed)return false;
+    if(automatic&&(!s.autoZero||t.autoExploreSuppressed))return false;
     if(!automatic)t.autoExploreSuppressed=false;
     // Deep reservations wait until an adjacent tile becomes part of the territory.
     s.tasks.push({ id: s.nextId++, kind: 'explore', tileId: id, remaining: 3, workerId: null, assault, automatic }); return true;
@@ -331,6 +331,20 @@
     for(const tile of s.tiles)if(tile.revealed&&tile.clue===0)count+=queueSafeNeighbors(s,tile.id);
     return count;
   }
+  function setAutoZero(s,enabled){
+    if(s.result||typeof enabled!=='boolean')return {ok:false,added:0,removed:0};
+    if(s.autoZero===enabled)return {ok:true,added:0,removed:0};
+    s.autoZero=enabled;
+    if(enabled){
+      let added=0;for(const tile of s.tiles)if(tile.revealed&&tile.clue===0)added+=queueSafeNeighbors(s,tile.id,{automatic:true});
+      return {ok:true,added,removed:0};
+    }
+    // Turning a feature off is not an explicit per-tile cancellation. Preserve
+    // earlier suppression, but allow these automatic jobs to resume on ON.
+    const automatic=s.tasks.filter(t=>t.kind==='explore'&&t.automatic),ids=new Set(automatic.map(t=>t.id));
+    for(const u of s.units)if(ids.has(u.task))u.task=null;
+    s.tasks=s.tasks.filter(t=>!ids.has(t.id));return {ok:true,added:0,removed:automatic.length};
+  }
   function cancelAllExploration(s) {
     if(s.result)return 0;
     let count=0;
@@ -350,7 +364,7 @@
   }
   function cancelTask(s, id) {
     const task = s.tasks.find(t => t.tileId === id); if (!task || s.result) return false;
-    if(task.kind==='explore'&&s.autoZero)s.tiles[id].autoExploreSuppressed=true;
+    if(task.kind==='explore')s.tiles[id].autoExploreSuppressed=true;
     if (task.kind === 'build') { pay(s, task.paidCost || BUILDINGS[task.building].cost, -1);if(task.supported)s.towerSupport.available++; }
     for (const u of s.units) if (u.task === task.id) u.task = null;
     s.tasks = s.tasks.filter(t => t !== task); return true;
@@ -701,6 +715,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { isDragon, CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { setAutoZero, isDragon, CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -887,4 +887,40 @@ test('Mini Dragon spawning respects suspension and edges; blocked fog waits rath
   simulateTraffic(s,2);assert.equal(s.pendingSpawns.length,1);assert.equal(Math.round(u.x),5);assert.equal(Math.round(u.y),5);
   const t=pushFixture();falseFlagAttack(t,0,0);simulateTraffic(t,1);assertSeparated(t);
 });
+test('Turning auto zero OFF removes only automatic exploration and frees its Worker without changing manual/build/train work',()=>{
+  const s=Engine.create(42),manualId=E.index(3,3),buildId=E.index(9,9);assert(Engine.queueExplore(s,manualId));s.tiles[buildId].terrain='grass';assert(Engine.queueBuild(s,buildId,'farm').ok);assert(Engine.train(s,s.keepId,'worker').ok);
+  const auto=s.tasks.find(q=>q.automatic),manual=s.tasks.find(q=>q.tileId===manualId),build=s.tasks.find(q=>q.kind==='build'),automatic=s.tasks.filter(q=>q.automatic);
+  for(const [i,q] of [auto,manual,build].entries()){q.workerId=s.units[i].id;s.units[i].task=q.id;q.remaining=2;}
+  const resources={...s.resources},training=JSON.stringify(s.tiles[s.keepId].building.train);
+  assert.deepEqual(Engine.setAutoZero(s,false),{ok:true,added:0,removed:automatic.length});assert(!s.autoZero);assert.deepEqual(s.tasks,[manual,build]);assert.equal(s.units[0].task,null);
+  assert.equal(s.units[1].task,manual.id);assert.equal(s.units[2].task,build.id);assert.equal(manual.remaining,2);assert.equal(build.remaining,2);
+  assert.deepEqual(s.resources,resources);assert.equal(JSON.stringify(s.tiles[s.keepId].building.train),training);assert(automatic.every(q=>!s.tiles[q.tileId].autoExploreSuppressed));
+});
+test('ON resumes eligible visible zeros but never resurrects explicitly cancelled/flagged work or duplicates manual orders',()=>{
+  const s=Engine.create(42),cancelled=E.index(8,8),flagged=E.index(9,8),manual=E.index(10,8);
+  assert(Engine.cancelTask(s,cancelled));assert(Engine.setFlag(s,flagged));assert(Engine.cancelTask(s,manual));assert(Engine.queueExplore(s,manual));
+  Engine.setAutoZero(s,false);const result=Engine.setAutoZero(s,true);assert(result.ok&&result.added>0);
+  assert(!s.tasks.some(q=>q.tileId===cancelled||q.tileId===flagged));assert.equal(s.tasks.filter(q=>q.tileId===manual).length,1);assert(!s.tasks.find(q=>q.tileId===manual).automatic);
+  assert.deepEqual(Engine.setAutoZero(s,true),{ok:true,added:0,removed:0});assert.equal(new Set(s.tasks.map(q=>q.tileId)).size,s.tasks.length);
+});
+test('OFF blocks automatic zero chains and automatic API requests, but bulk/manual zero remains usable',()=>{
+  const s=Engine.create(42,{autoZero:false}),id=E.index(8,10);assert.equal(s.tasks.length,0);assert(!Engine.queueExplore(s,id,{automatic:true}));
+  Engine.reveal(s,id);assert.equal(s.tasks.length,0);assert(Engine.queueAllZeroNeighbors(s)>0);assert(s.tasks.every(q=>!q.automatic));
+  const job=s.tasks[0];assert(Engine.cancelTask(s,job.tileId));assert(s.tiles[job.tileId].autoExploreSuppressed);
+});
+test('Explicit per-tile and all-clear cancellation while OFF still suppresses automatic requeue on ON',()=>{
+  const s=Engine.create(42,{autoZero:false}),id=E.index(8,8);assert(Engine.queueExplore(s,id));assert(Engine.cancelTask(s,id));Engine.setAutoZero(s,true);assert(!s.tasks.some(q=>q.tileId===id));
+  Engine.setAutoZero(s,false);assert(Engine.queueAllZeroNeighbors(s)>0);const ids=s.tasks.map(q=>q.tileId);Engine.cancelAllExploration(s);Engine.setAutoZero(s,true);assert(s.tasks.every(q=>!ids.includes(q.tileId)));
+  assert(Engine.queueAllZeroNeighbors(s)>0);assert(s.tasks.some(q=>ids.includes(q.tileId)));
+});
+test('Stored-style OFF construction creates no initial reservations across 100 seeds; ON then resumes real Worker exploration',()=>{
+  for(let seed=0;seed<100;seed++){const s=Engine.create(seed,{autoZero:false});assert(!s.autoZero);assert.equal(s.tasks.length,0);assert.equal(s.tiles.filter(t=>t.revealed).length,9);assert.equal(s.units.length,3);}
+  const s=Engine.create(42,{autoZero:false});Engine.start(s);simulateTraffic(s,5);assert.equal(s.tiles.filter(t=>t.revealed).length,9);
+  assert(Engine.setAutoZero(s,true).added>0);simulateTraffic(s,12);assert(s.tiles.filter(t=>t.revealed).length>9);assertSeparated(s);
+});
+test('Auto zero toggles work before start/in background without advancing time, and reject ended games or invalid values',()=>{
+  const s=Engine.create(42);Engine.setBackgroundPaused(s,true);const time=s.time;assert(Engine.setAutoZero(s,false).ok);assert(Engine.setAutoZero(s,true).ok);assert.equal(s.time,time);assert.equal(s.phase,'ready');assert(s.backgroundPaused);
+  for(const invalid of [null,'false',0,undefined]){const before=JSON.stringify(s);assert(!Engine.setAutoZero(s,invalid).ok);assert.equal(JSON.stringify(s),before);}
+  for(const result of ['victory','defeat']){s.result=result;const before=JSON.stringify(s);assert(!Engine.setAutoZero(s,false).ok);assert.equal(JSON.stringify(s),before);}
+});
 console.log(`${checks} scenarios passed.`);
