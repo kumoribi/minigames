@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#203d28">
   <meta name="description" content="数字を読み、土地を開拓し、軍備を整えてDragonを討つファンタジー探索RTS">
   <link rel="manifest" href="../manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=13">
   <title>キングダムスイーパー | ミニゲーム集</title>
 </head>
 <body>
@@ -21,7 +21,7 @@
   </section>
   <section class="command-bar" aria-label="ゲーム速度と地図操作">
     <div class="run-controls" role="group" aria-label="ゲームの開始と報酬">
-      <button type="button" id="start-run">▶ ゲーム開始</button><span id="run-state" hidden>通常速度</span><button id="treasure-open" type="button" hidden>報酬</button>
+      <button type="button" id="start-run">▶ ゲーム開始</button><span id="run-state" hidden>通常速度</span><button id="difficulty-open" type="button">難易度1</button><button id="treasure-open" type="button" hidden>報酬</button>
     </div>
     <div class="map-controls"><button id="zoom-out" aria-label="地図を縮小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="地図を拡大">＋</button><button id="center" title="王城へ移動" aria-label="王城へ移動">⌂ 王城</button></div>
   </section>
@@ -75,7 +75,7 @@
   <details class="play-notes"><summary>進行ガイド・操作説明・出撃ルール</summary>
     <section class="guide" aria-label="次の目標"><div><small id="guide-step"></small><strong id="guide-title"></strong><p id="guide-text"></p></div><button id="guide-toggle" aria-expanded="true">案内を隠す</button></section>
     <p class="map-help" id="mode-help">未探索マスをタップして開拓予約。敵拠点を旗なしで開くとHP・攻撃2倍の部隊！</p>
-    <p id="raid-status" class="notice" aria-label="定期出撃の状況">1:30以降、全域の未封印拠点・誤旗から60秒周期で敵が出撃します。</p>
+    <p id="raid-status" class="notice" aria-label="定期出撃の状況">1:30以降、全域の未封印拠点・誤旗から難易度に応じた間隔で敵が出撃します。</p>
   </details>
   <details class="survey"><summary>探索先の候補：資源地帯</summary><p>紫枠は3×3区画のおおよその資源情報です。敵の位置や安全性は保証しません。数字を読み、短い接近路を攻めるか、0の続く別経路を探すか選びましょう。候補を押すと地図へ移動します（開拓予約はしません）。</p><div id="survey-regions"></div></details>
   <nav class="mobile-dock" aria-label="王国の操作"><button data-dock="explore">⛏ 開拓</button><button data-dock="build">⌂ 建築</button><button data-dock="army">⚔ 軍備</button><button data-dock="flag">⚑ 旗</button><button data-dock="pan">✥ 移動</button></nav>
@@ -94,21 +94,30 @@
       <p>風車は周囲8マスの農場生産を25%増加。鍛冶屋は上下左右の兵舎で育成完了した兵士の攻撃・HPを20%強化します。複数隣接しても同種の効果は重複せず、鍛冶屋は既存兵士には適用されません。</p>
       <p>宝箱はWood20・Food20・Gold35と3択報酬を獲得。農場生産+25%、全兵士攻撃+20%、王城・塔射程+5%（塔がなく支援未取得なら初回の塔1棟の設営支援）から1つ選択します。選択中も時間は進行。閉じて上部「報酬」から再表示できます。数値強化は加算、シナジーとは乗算。設営支援の塔もWorkerの建築8秒が必要です。王城は毎秒Food・Woodを0.3ずつ供給します。</p>
       <p>左クリック／タップ：現在モードの操作。右クリック：資源採集・集合命令。ドラッグ：開拓予約。地図移動モード：ドラッグで移動。開始後は通常速度固定で、手動停止・倍速はありません。ヘルプ・宝箱・再開始確認中も時間は進みます。非表示タブだけ自動停止し、戻ると自動再開します。</p>
-      <p>全域の未開拓拠点は旗がなければ定期出撃します。正しい旗は出撃を封印、安全マスへの誤旗は逆に敵の出撃元です。初回はゲーム内90〜149秒、以後各地点60秒周期で1体ずつ。旗の付け外しで周期はリセットされず、既に出た敵は消えません。敵は未探索地形も通過しますが、領土や数字は変えません。</p>
-      <p>旗なしで敵拠点を開くと3〜5体の強化ゴブリン（HP96・攻撃14：通常の2倍）が出現。旗を維持して選択情報から「拠点攻略予約」「集結後に拠点攻略予約」を行うと通常部隊（HP48・攻撃7）との戦いです。開いた拠点の定期出撃は停止します。Dragonは開くまで休眠し、この強化ペナルティーの対象外です。</p>
+      <p>全域の未開拓拠点は旗がなければ定期出撃します。正しい旗は出撃を封印、安全マスへの誤旗は逆に敵の出撃元です。初回はゲーム内90〜149秒、以後は難易度1で各地点60秒周期（高難易度は最短45秒）で1体ずつ。旗の付け外しで周期はリセットされず、既に出た敵は消えません。敵は未探索地形も通過しますが、領土や数字は変えません。</p>
+      <p>旗なしで敵拠点を開くと3〜5体の強化ゴブリン（HP96・攻撃14：通常の2倍）が出現。旗を維持して選択情報から「拠点攻略予約」「集結後に拠点攻略予約」を行うと通常部隊（基準HP48・攻撃7）との戦いです。開いた拠点の定期出撃は停止します。Dragonは開くまで休眠し、この強化ペナルティーの対象外です。</p>
     </details>
   </div>
   <div class="run-footer"><span id="seed"></span><button id="restart">↻ 新しい王国</button></div>
 </main>
-<dialog id="result"><div class="result-inner"><p class="eyebrow" id="result-label">KINGDOM</p><h2 id="result-title"></h2><p id="result-summary"></p><p id="result-stats"></p><button id="replay">同じ王国で再挑戦</button><button id="again">新しい王国を始める</button><a href="../">ミニゲーム集へ</a></div></dialog>
+<dialog id="result"><div class="result-inner"><p class="eyebrow" id="result-label">KINGDOM</p><h2 id="result-title"></h2><p id="result-summary"></p><p id="result-stats"></p><section id="difficulty-unlock" class="difficulty-card" hidden><h3 id="unlock-title"></h3><p>前の難易度から変わる項目</p><ul id="unlock-changes" class="difficulty-changes"></ul><p>ドラゴンHPは敵HP倍率と追加補正の乗算。領土強化は別途適用します。</p><p id="unlock-save-status" role="status"></p><button id="next-difficulty" type="button">次の難易度へ</button></section><button id="choose-result-difficulty" type="button" hidden>難易度を選ぶ</button><button id="replay">同じ王国・同じ難易度で再挑戦</button><button id="again">同じ難易度で新しい王国</button><a href="../">ミニゲーム集へ</a></div></dialog>
+<dialog id="difficulty-dialog" class="difficulty-dialog" aria-labelledby="difficulty-title">
+  <h2 id="difficulty-title">難易度を選ぶ</h2><p id="difficulty-unlocked"></p>
+  <label class="difficulty-input">難易度 <input id="difficulty-choice" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+  <p id="difficulty-error" role="status"></p><dl id="difficulty-settings" class="difficulty-settings"></dl>
+  <h3 id="difficulty-diff-title"></h3><ul id="difficulty-changes" class="difficulty-changes"></ul>
+  <p id="difficulty-dragon-total"></p><p>領土の1～5倍強化・旗なし攻略の2倍は別途適用。兵士・速度・射程・資源・マップ生成は変わりません。</p>
+  <p id="difficulty-save-status" role="status"></p><p>適用すると領土・資源・予約をリセットし、開始前の新しい王国を作ります。ゲーム途中の保存ではありません。</p>
+  <div class="difficulty-actions"><button id="difficulty-apply" type="button">この難易度で新しい王国を準備</button><button id="difficulty-close" type="button">閉じる</button></div>
+</dialog>
 <dialog id="confirm"><div class="result-inner"><h2>新しい王国を始めますか？</h2><p>現在の領土・資源・予約はリセットされます。</p><button id="confirm-restart">新しい王国へ</button><button id="cancel-restart" class="secondary">今の王国を続ける</button></div></dialog>
 <dialog id="help" class="help-dialog" aria-labelledby="help-title">
   <div class="help-heading"><p class="eyebrow">FIRST STEPS</p><h2 id="help-title">王国づくりの進め方</h2><p>開始後はヘルプ閲覧中も戦闘・時間が進みます。</p></div>
   <div class="help-body">
     <p class="help-goal"><b>目標：侵攻を封じながらDragonを討伐する</b><br>王城HPが0で敗北。敵を開かなければ安全、ではありません。1:30以降、全域の未封印拠点と誤った旗から敵が定期出撃します。</p>
     <h3>旗は推理と封印。誤ると敵が増える</h3>
-    <p>初回出撃は各地点ゲーム内90〜149秒、以後60秒周期でゴブリン1体。正しい旗は未開拓拠点の出撃を止めますが、安全マスへの誤旗も出撃元になります。付け外ししても周期は変わらず、既に出た敵は残ります。旗の正誤は即表示しません。開始後はヘルプ・宝箱選択中も出撃時計が進みます。</p>
-    <p>旗なしで拠点を開くと<b>3〜5体全員のHP・攻撃が2倍</b>（HP96・攻撃14）。旗付きマスを選び、<b>「旗を維持して拠点攻略予約」</b>または集結攻略で開くと通常部隊（HP48・攻撃7）です。作業完了まで旗を維持してください。開拓中に旗を外すと強化部隊になります。通常の開拓予約中に旗を立てると、その予約を取り消します。</p>
+    <p>初回出撃は各地点ゲーム内90〜149秒、以後は難易度1で60秒周期（高難易度は最短45秒）でゴブリン1体。正しい旗は未開拓拠点の出撃を止めますが、安全マスへの誤旗も出撃元になります。付け外ししても周期は変わらず、既に出た敵は残ります。旗の正誤は即表示しません。開始後はヘルプ・宝箱選択中も出撃時計が進みます。</p>
+    <p>旗なしで拠点を開くと<b>3〜5体全員のHP・攻撃が2倍</b>（難易度1・領土1倍でHP96・攻撃14）。旗付きマスを選び、<b>「旗を維持して拠点攻略予約」</b>または集結攻略で開くと通常部隊（基準HP48・攻撃7）です。作業完了まで旗を維持してください。開拓中に旗を外すと強化部隊になります。通常の開拓予約中に旗を立てると、その予約を取り消します。</p>
     <p>未探索地形を敵だけが通過できます。通過で土地は開かず、数字も変わりません。開いた拠点と開いた安全マスからは定期出撃しません。Dragonは巣を開くまで休眠し、旗なし開拓の2倍ペナルティーはゴブリン拠点のみです。</p>
     <h3>推理した敵を、準備した場所で迎え撃つ</h3>
     <p>開拓済みマスを選んで「兵士の集合地点にする」→「集合地点を防衛」。兵士は集合地点から半径3マス以内の敵を迎撃し、敵がいなくなると戻ります。範囲外は追わず、近接されたときは自衛します。遠方の敵も追うときは「自動追撃」へ切り替えます。</p>
@@ -146,6 +155,9 @@
     <p>Goblin・Dragonは、4マス未満にいるWorker・Soldier・生存中の監視塔から最も近い対象を攻撃します。同じ距離ならユニットを優先。周囲に対象がなければ王城へ向かいます。農場など他の建物は対象外です。監視塔は被害を受けるとHPバーが表示され、HP0で破壊・自動攻撃停止。敵を遠ざければ空き平地になった跡地へ通常費用で再建できます。破壊されても設営支援は戻りません。</p>
     <p>宝箱は資源に加え「農場生産+25%」「全兵士攻撃+20%」「塔射程+5%」の3択。ただし塔がなく設営支援を未取得のとき、3枠目は「前線設営の支援」です。次の監視塔1棟のWOOD60・GOLD15を免除します。1王国1回で、開拓済みの空き平地・敵との距離・Worker建築8秒は通常どおり。予約取消は支援を返し、資源の払い戻しはありません。「この王国の強化」で未使用・予約中・設営済みを確認し、後から配置もできます。</p>
     <p>設営支援を選ぶと塔の配置モードへ移ります。時間は止まらないので、空き平地へ予約してください。支援を使わず別の操作に戻っても失いません。報酬を閉じても上部の「報酬」から再表示可能。複数の宝箱は順番に選び、設営支援を選んだ後の宝箱は塔射程強化になります。数値強化は基本値に加算、シナジーとは乗算し、既存・今後の対象に有効。新しい王国では全てリセットします。</p>
+    <h3>難易度とクリア記録</h3>
+    <p>難易度1が従来ルールです。クリアで次の段階を解放し、勝利画面に何が何倍・何秒へ変わるか表示します。1段階ごとに敵HP+10%・攻撃+5%、定期出撃間隔-3秒（最短45秒）、本物Dragonの追加HP+10%。各補正は難易度1基準で加算し、Dragon追加HP・領土強化等とは乗算します。兵士や初回出撃猶予は不変。「次の難易度へ」は開始前の新王国を作ります。</p>
+    <p>一度クリアすると再起動時にも解放済み難易度を選べ、選択画面でも直前との差を確認できます。記録するのは最高クリアと選択だけで、途中マップは保存しません。保存不可の場合はページ内だけ有効となり警告します。導入前のクリア記録はないため、新たな難易度1クリアから解放が始まります。難易度変更は領土・資源・予約をリセットし、戦闘中は変更できません。</p>
     <h3>現在の制限</h3>
     <p>予約パネルの「0周辺の自動開拓」でON/OFFを切り替えられます。OFFは作業中を含む自動予約だけを解除し、手動開拓・拠点攻略・建築・育成予約は残します。ONに戻すと表示済み0から再予約しますが、個別取消・全解除したマスは自動復活しません。「0周辺を一括開拓」はOFFでも使えます。設定はブラウザーに保存し、新しい王国や再読み込みでも維持します（保存不可の場合は通知）。</p>
     <p>誤った旗のマスを「拠点攻略」「集結攻略」で開くと、ミニドラゴンが1体出現します。基本HP300・攻撃14・速度1.2・攻撃間隔1.4秒。HPと攻撃には領土倍率が適用されます。通常Dragonの60%の大きさで、押しのけ能力を持ちます。倒しても勝利や拠点戦利品にはならず、通常Gold6のみ。誤旗からの定期ゴブリン出撃は維持され、正解拠点の戦利品は従来どおりです。</p>
@@ -162,6 +174,6 @@
   <div class="help-footer"><button id="help-close" type="button">分かった・ゲームに戻る</button><small>いつでも上部の「？ 遊び方」から読み直せます。</small></div>
 </dialog>
 <dialog id="treasure" class="treasure-dialog" aria-labelledby="treasure-title"><div class="result-inner"><p class="eyebrow">ROYAL TREASURE</p><h2 id="treasure-title">王国の力を選ぼう</h2><p>Wood +20・Food +20・Gold +35<br>報酬を1つ選択。時間と戦闘は進行します。</p><div id="upgrade-choices"></div><small>設営支援の選択後も時間は進行します。後から選ぶ場合は閉じて上部の「報酬」から開き直せます。</small><button id="treasure-close" type="button">閉じて戦闘に戻る</button></div></dialog>
-<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=25"></script><script src="renderer.js?v=11"></script><script src="game.js?v=22"></script>
+<script src="vendor/phaser-3.90.0.min.js"></script><script src="engine.js?v=26"></script><script src="renderer.js?v=11"></script><script src="progress.js?v=1"></script><script src="game.js?v=23"></script>
 </body>
 </html>

@@ -14,6 +14,14 @@
   const BODY_RADIUS=Object.freeze(Object.fromEntries(Object.entries(UNIT_VISUALS).map(([kind,v])=>[kind,Math.max(v.bounds[2]-v.bounds[0],v.bounds[3]-v.bounds[1])*v.size/Math.max(v.width,v.height)/112*(kind==='soldier'?.8:1)])));
   const RAID_RULES = Object.freeze({ first: 90, spread: 60, interval: 60, ambushMultiplier: 2 });
   const CAMP_REWARD=Object.freeze({food:30,wood:30,gold:15});
+  function difficultySettings(level=1){
+    const difficulty=Number.isSafeInteger(level)&&level>=1?level:1,step=difficulty-1;
+    return Object.freeze({level:difficulty,enemyHp:1+.1*step,enemyAttack:1+.05*step,raidInterval:Math.max(45,60-3*step),dragonHp:1+.1*step});
+  }
+  function difficultyChanges(from,to){
+    const a=difficultySettings(from),b=difficultySettings(to);
+    return [['enemyHp','敵HP倍率','倍'],['enemyAttack','敵攻撃力倍率','倍'],['raidInterval','定期出撃の間隔','秒'],['dragonHp','ドラゴンHP追加補正','倍']].filter(([key])=>a[key]!==b[key]).map(([key,label,unit])=>({key,label,unit,before:a[key],after:b[key]}));
+  }
   const isDragon=u=>u.kind==='dragon'||u.kind==='miniDragon';
   const enemySpeed=u=>u.kind==='miniDragon'?1.2:u.kind==='dragon'?1:1.35;
   const BUILDINGS = {
@@ -252,8 +260,12 @@
       if(count>=4)s.regions.push({id:i,kind,direction:r.dir.name,x:center.x,y:center.y,radius:1});
     }
   }
-  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true, autoZero = true, enemyGrowth = true } = {}) {
+  function create(seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0, { structured = true, autoZero = true, enemyGrowth = true, difficulty = 1 } = {}) {
     const random = rng(seed), s = { seed: seed >>> 0, time: 0, phase:'ready', backgroundPaused:false, result: null, resources: { wood: 100, food: 100, gold: 0 }, tiles: [], units: [], enemies: [], pendingSpawns:[], tasks: [], events: [], effects: [], nextId: 1, keepId: index(10, 10), rally: index(10, 10), workerFocus: null, dragonAwake: false, kills: 0 };
+    const settings=difficultySettings(difficulty);
+    Object.defineProperty(s,'difficulty',{value:settings.level,enumerable:true});
+    Object.defineProperty(s,'difficultySettings',{value:settings,enumerable:true});
+    s.raidRules=Object.freeze({...RAID_RULES,interval:settings.raidInterval});
     s.enemyGrowth=enemyGrowth;s.autoZero=autoZero;s.upgrades = { farm: 0, soldier: 0, tower: 0 }; s.pendingRewards = [];
     s.towerSupport = { claimed: 0, available: 0, built: 0 };
     s.raids = { spawned: 0, ambushes: 0 };
@@ -381,7 +393,8 @@
     for (let i = 0; i < count; i++) {
       const boss = kind === 'dragon',mini=kind==='miniDragon',dragonLike=boss||mini;
       const multiplier = empowered ? RAID_RULES.ambushMultiplier : 1;
-      const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp: (boss ? 1200 : mini ? 300 : 48) * multiplier, maxHp: (boss ? 1200 : mini ? 300 : 48) * multiplier, attack: (boss ? 28 : mini ? 14 : 7) * multiplier, cooldown: 1.5, empowered };
+      const settings=s.difficultySettings,hp=(boss?1200:mini?300:48)*multiplier*settings.enemyHp*(boss?settings.dragonHp:1);
+      const enemy={ id: s.nextId++, kind, x: tile.x, y: tile.y, hp, maxHp:hp, attack: (boss ? 28 : mini ? 14 : 7) * multiplier * settings.enemyAttack, cooldown: 1.5, empowered };
       if(rewardCampId!==null)enemy.rewardCampId=rewardCampId;
       scaleEnemy(enemy,enemyMultiplier(s));
       const h=bodyRadius(enemy),origin=dragonLike?{x:Math.max(h-.5,Math.min(SIZE-.5-h,tile.x)),y:Math.max(h-.5,Math.min(SIZE-.5-h,tile.y))}:{x:tile.x,y:tile.y};
@@ -395,7 +408,7 @@
     let count=0;
     for(const tile of s.tiles) if(s.time + 1e-9 >= tile.nextRaidAt) {
       // Advance even inactive/sealed cells: toggling flags cannot postpone the schedule.
-      tile.nextRaidAt += RAID_RULES.interval;
+      tile.nextRaidAt += s.raidRules.interval;
       if(!tile.revealed && ((tile.danger===1 && !tile.flag) || (tile.danger===0 && tile.flag))) {
         spawn(s,'goblin',tile);count++;
       }
@@ -715,6 +728,6 @@
     s.effects = s.effects.filter(e => (e.life -= dt) > 0).slice(-100);
     collisionContexts.delete(s);
   }
-  const api = { setAutoZero, isDragon, CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
+  const api = { difficultySettings, difficultyChanges, setAutoZero, isDragon, CAMP_REWARD, campRewardStatus, enemyMultiplier, SIZE, UNIT_VISUALS, BODY_RADIUS, bodyRadius, collisionEnabled, circlesOverlap, overlaps, canStand, placeBody, inMelee, enemyTarget, start, setBackgroundPaused, RAID_RULES, BUILDINGS, UNIT_COST, UPGRADES, create, neighbors, index, xy, frontier, setFlag, queueExplore, queueAssault, queuePreparedExplore, queueSafeNeighbors, queueAllZeroNeighbors, cancelAllExploration, preparationStatus, setArmyMode, queueBuild, buildCost, cancelTask, train, tick, population, path, reveal, canPay, hasNeighbor, farmRate, towerRange, soldierAttack, chooseUpgrade, rewardOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KingdomEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

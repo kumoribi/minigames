@@ -923,4 +923,58 @@ test('Auto zero toggles work before start/in background without advancing time, 
   for(const invalid of [null,'false',0,undefined]){const before=JSON.stringify(s);assert(!Engine.setAutoZero(s,invalid).ok);assert.equal(JSON.stringify(s),before);}
   for(const result of ['victory','defeat']){s.result=result;const before=JSON.stringify(s);assert(!Engine.setAutoZero(s,false).ok);assert.equal(JSON.stringify(s),before);}
 });
+const Progress=require('./progress.js');
+test('Difficulty1 is unchanged; successive settings increase predictably and raid interval has a 45-second floor',()=>{
+  assert.deepEqual(Engine.difficultySettings(1),{level:1,enemyHp:1,enemyAttack:1,raidInterval:60,dragonHp:1});
+  const two=Engine.difficultySettings(2);assert.equal(two.enemyHp,1.1);assert.equal(two.enemyAttack,1.05);assert.equal(two.raidInterval,57);assert.equal(two.dragonHp,1.1);
+  assert.equal(Engine.difficultySettings(6).raidInterval,45);assert.equal(Engine.difficultySettings(20).raidInterval,45);
+  for(const invalid of [0,-1,1.5,NaN,Infinity,'2'])assert.equal(Engine.difficultySettings(invalid).level,1);
+});
+test('Difficulty diff lists actual previous-to-next changes and omits unchanged interval at the floor',()=>{
+  assert.equal(Engine.difficultyChanges(1,2).length,4);assert.equal(Engine.difficultyChanges(1,1).length,0);
+  assert.deepEqual(Engine.difficultyChanges(6,7).map(c=>c.key),['enemyHp','enemyAttack','dragonHp']);
+  for(const c of Engine.difficultyChanges(2,3)){assert.equal(c.before,Engine.difficultySettings(2)[c.key]);assert.equal(c.after,Engine.difficultySettings(3)[c.key]);}
+});
+test('Difficulty applies to normal, ambush, mini and boss HP/attack; boss-only extra HP does not affect minis',()=>{
+  for(const kind of ['normal','ambush','mini','boss']){
+    const s=Engine.create(42,{autoZero:false,enemyGrowth:false,difficulty:2});s.units=[];const t=s.tiles[0];t.revealed=false;t.danger=kind==='boss'?3:kind==='mini'?0:1;t.terrain='grass';t.flag=kind!=='ambush';
+    Engine.reveal(s,0,{assault:kind!=='ambush'});const all=[...s.enemies,...s.pendingSpawns.map(p=>p.enemy)],factor=kind==='ambush'?2:1;
+    assert(all.length>0);for(const e of all){const hp=kind==='boss'?1200:kind==='mini'?300:48,attack=kind==='boss'?28:kind==='mini'?14:7;
+      assert(Math.abs(e.maxHp-hp*factor*1.1*(kind==='boss'?1.1:1))<1e-8);assert(Math.abs(e.attack-attack*factor*1.05)<1e-8);}
+    assert.equal(s.difficulty,2);assert.throws(()=>s.difficulty=3,TypeError);
+  }
+});
+test('Territory growth compounds difficulty without repeated multiplication or healing wounds',()=>{
+  const s=Engine.create(42,{autoZero:false,difficulty:2});s.units=[];s.tiles.forEach((t,i)=>{t.revealed=i<9;t.danger=0;t.nextRaidAt=Infinity;});s.tiles[0].revealed=false;s.tiles[0].flag=true;s.tiles[0].danger=1;Engine.reveal(s,0,{assault:true});
+  const e=s.enemies[0]||s.pendingSpawns[0].enemy;e.hp=e.maxHp/2;Engine.start(s);s.tiles.forEach(t=>t.revealed=true);Engine.tick(s,.05);
+  assert(Math.abs(e.maxHp-48*1.1*5)<1e-8);assert(Math.abs(e.hp-e.maxHp/2)<1e-8);assert(Math.abs(e.attack-7*1.05*5)<1e-8);stepExact(s,.2);assert(Math.abs(e.maxHp-264)<1e-8);
+});
+test('Higher difficulties change recurring raid schedule, not first-wave grace, map, player stats or initial resources',()=>{
+  for(const level of [1,2,3,6,10])for(const seed of [3,34,91]){
+    const base=Engine.create(seed,{autoZero:false}),s=Engine.create(seed,{autoZero:false,difficulty:level});assert.deepEqual(s.tiles,base.tiles);assert.deepEqual(s.units,base.units);assert.deepEqual(s.resources,base.resources);
+    s.units=[];s.tiles.forEach(t=>{t.revealed=false;t.flag=false;t.danger=0;});const camp=s.tiles[0];camp.danger=1;s.time=89.95;Engine.start(s);Engine.tick(s,.05);assert.equal(s.raids.spawned,1);assert.equal(camp.nextRaidAt,90+Engine.difficultySettings(level).raidInterval);
+  }
+});
+test('Progress starts locked at1, unlocks sequentially only on victory, and never regresses on repeat wins/losses',()=>{
+  let p=Progress.normalize(null);assert.deepEqual(p,{version:1,highestCleared:0,selected:1});assert.equal(Progress.select(p,2).selected,1);
+  assert.deepEqual(Progress.complete(p,1,'defeat'),p);assert.deepEqual(Progress.complete(p,2,'victory'),p);
+  p=Progress.complete(p,1,'victory');assert.equal(p.highestCleared,1);p=Progress.select(p,2);assert.equal(p.selected,2);
+  p=Progress.complete(p,2,'victory');assert.equal(p.highestCleared,2);assert.deepEqual(Progress.complete(p,1,'victory'),p);assert.deepEqual(Progress.complete(p,3,'defeat'),p);
+  assert.equal(Progress.select(p,3).selected,3);assert.equal(Progress.select(p,4).selected,2);
+});
+test('Progress roundtrip persists highest clear and selection, tolerates corrupt storage and does not touch other keys',()=>{
+  const map=new Map([['unrelated','keep']]),storage={getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};
+  let p=Progress.complete(Progress.normalize(null),1,'victory');p=Progress.select(p,2);assert(Progress.save(storage,p));assert.deepEqual(Progress.load(storage).progress,p);assert.equal(map.get('unrelated'),'keep');
+  for(const raw of ['{bad','null','{"version":1,"highestCleared":-1,"selected":99}','{"version":9,"highestCleared":500,"selected":100}','{"version":1,"highestCleared":1.5}']){map.set(Progress.KEY,raw);assert.equal(Progress.load(storage).progress.highestCleared,0);assert.equal(Progress.load(storage).progress.selected,1);}
+  map.set(Progress.KEY,JSON.stringify({version:1,highestCleared:2,selected:999}));assert.deepEqual(Progress.load(storage).progress,{version:1,highestCleared:2,selected:1});
+});
+test('Storage denial keeps in-memory unlocks usable and reports unavailable load/save',()=>{
+  const denied={getItem(){throw Error('denied');},setItem(){throw Error('denied');}};const load=Progress.load(denied);assert(!load.available);
+  const p=Progress.select(Progress.complete(load.progress,1,'victory'),2);assert.equal(p.selected,2);assert.equal(p.highestCleared,1);assert(!Progress.save(denied,p));
+});
+test('Real boss victory unlocks the next difficulty, while mini kill/defeat cannot unlock',()=>{
+  let p=Progress.normalize(null);const mini=pushFixture(),m=falseFlagAttack(mini).enemy;m.hp=0;Engine.tick(mini,.05);assert.deepEqual(Progress.complete(p,1,mini.result),p);
+  const boss=pushFixture(),b=awakenAt(boss,5,5);b.hp=0;Engine.tick(boss,.05);p=Progress.complete(p,boss.difficulty,boss.result);assert.equal(p.highestCleared,1);
+  const failed=pushFixture();failed.tiles[failed.keepId].building.hp=0;Engine.tick(failed,.05);assert.deepEqual(Progress.complete(p,2,failed.result),p);
+});
 console.log(`${checks} scenarios passed.`);

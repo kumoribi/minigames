@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const E = window.KingdomEngine, $ = id => document.getElementById(id);
+  const E = window.KingdomEngine, P=window.KingdomProgress, $ = id => document.getElementById(id);
   const canvas = $('map'), viewport = $('viewport'), CELL = 56;
   if (!window.Phaser || !window.KingdomRenderer) { $('loading').textContent='描画エンジンを読み込めませんでした。再読み込みしてください。'; return; }
   let renderer;
@@ -10,7 +10,10 @@
   const autoZeroStorageKey='kingdom-sweeper-auto-zero-v1';
   let autoZeroPreference=true;
   try{autoZeroPreference=localStorage.getItem(autoZeroStorageKey)!=='false';}catch(_){/* Use ON when storage is unavailable. */}
-  let world = E.create(undefined,{autoZero:autoZeroPreference}), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1;
+  const progressStorage={getItem:key=>localStorage.getItem(key),setItem:(key,value)=>localStorage.setItem(key,value)};
+  const loadedProgress=P.load(progressStorage);let progress=loadedProgress.progress,progressStorageAvailable=loadedProgress.available;
+  let pendingInitialDifficulty=progress.highestCleared>0;
+  let world = E.create(undefined,{autoZero:autoZeroPreference,difficulty:progress.selected}), selected = world.keepId, mode = 'explore', buildKind = null, zoom = 1;
   let pointer = null, last = performance.now(), uiElapsed = 0, lastEvent = null, actionKey = '', queueKey = '', resultShown = false, rewardShown = null;
   const mobile = window.matchMedia('(max-width:760px)'), systemMotion = window.matchMedia('(prefers-reduced-motion:reduce)');
   let seenEffects = new WeakSet(), visualTime = 0, feedbackUntil = 0, resultAt = null, audio = null, guideStage = 0;
@@ -61,10 +64,62 @@
   $('help-close').addEventListener('click', () => $('help').close());
   $('help').addEventListener('close', () => {
     try { localStorage.setItem(helpSeenKey, 'seen'); } catch (_) { /* Reading help must not depend on storage. */ }
+    if(pendingInitialDifficulty)openDifficulty();
   });
   const costText = cost => Object.entries(cost).map(([key,n]) => `${key.toUpperCase()} ${n}`).join(' / ');
   const timeText = n => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2,'0')}`;
   function notice(message) { $('notice').textContent = message; $('feedback').textContent=message;$('feedback').hidden=false;feedbackUntil=visualTime+3; }
+  const settingLabels={enemyHp:'敵HP倍率',enemyAttack:'敵攻撃力倍率',raidInterval:'定期出撃の間隔',dragonHp:'ドラゴンHP追加補正'};
+  const formatSetting=(key,value)=>key==='raidInterval'?`${value}秒`:`${value.toFixed(2)}倍`;
+  function persistProgress(){
+    const latest=P.load(progressStorage).progress;progress.highestCleared=Math.max(progress.highestCleared,latest.highestCleared);
+    progressStorageAvailable=P.save(progressStorage,progress);return progressStorageAvailable;
+  }
+  function changeList(element,from,to){
+    const changes=E.difficultyChanges(from,to);
+    element.replaceChildren(...changes.map(change=>{const li=document.createElement('li');li.textContent=`${change.label}：${formatSetting(change.key,change.before)} → ${formatSetting(change.key,change.after)}`;return li;}));
+    if(!changes.length){const li=document.createElement('li');li.textContent='基準設定です。難易度による追加強化はありません。';element.append(li);}
+  }
+  function renderDifficultyChoice(){
+    const level=Number($('difficulty-choice').value),max=progress.highestCleared+1,valid=Number.isSafeInteger(level)&&level>=1&&level<=max;
+    $('difficulty-apply').disabled=!valid;$('difficulty-error').textContent=valid?'':`解放済みの難易度1～${max}を整数で選んでください。`;
+    $('difficulty-unlocked').textContent=progress.highestCleared?`最高クリア：難易度${progress.highestCleared} / 難易度1～${max}を選べます。`:'初回は難易度1のみ。クリアすると次の難易度を解放します。';
+    $('difficulty-save-status').textContent=progressStorageAvailable?'クリア記録と選択はこのブラウザーに保存します。':'保存を利用できません。解放状況はこのページ内だけで保持します。';
+    $('difficulty-settings').replaceChildren();$('difficulty-changes').replaceChildren();$('difficulty-dragon-total').textContent='';
+    if(!valid){$('difficulty-diff-title').textContent='';return;}
+    const settings=E.difficultySettings(level);
+    for(const key of Object.keys(settingLabels)){const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=settingLabels[key];value.textContent=formatSetting(key,settings[key]);$('difficulty-settings').append(term,value);}
+    $('difficulty-diff-title').textContent=level===1?'難易度1：現行ルールが基準':`難易度${level-1} → ${level}の変更点`;
+    changeList($('difficulty-changes'),Math.max(1,level-1),level);
+    $('difficulty-dragon-total').textContent=`ドラゴンHPの合計補正：${(settings.enemyHp*settings.dragonHp).toFixed(2)}倍（領土倍率適用前）`;
+  }
+  function openDifficulty(){
+    if(world.result&&resultAt!==null)return;
+    if(world.phase!=='ready'&&!world.result)return;
+    pendingInitialDifficulty=false;if($('help').open)$('help').close();
+    $('difficulty-choice').max=progress.highestCleared+1;$('difficulty-choice').value=world.difficulty;renderDifficultyChoice();
+    if(!$('difficulty-dialog').open)$('difficulty-dialog').showModal();
+  }
+  function prepareDifficulty(level){
+    if(!Number.isSafeInteger(level)||level<1||level>progress.highestCleared+1)return;
+    progress=P.select(progress,level);const saved=persistProgress();pendingInitialDifficulty=false;
+    for(const id of ['difficulty-dialog','result'])if($(id).open)$(id).close();restart(undefined,level);
+    notice(`難易度${level}の王国を準備しました。「ゲーム開始」で進行します。`+(saved?'':' クリア記録・選択を保存できません。'));
+  }
+  $('difficulty-open').addEventListener('click',openDifficulty);$('choose-result-difficulty').addEventListener('click',openDifficulty);
+  $('difficulty-choice').addEventListener('input',renderDifficultyChoice);$('difficulty-close').addEventListener('click',()=>$('difficulty-dialog').close());
+  $('difficulty-apply').addEventListener('click',()=>prepareDifficulty(Number($('difficulty-choice').value)));
+  $('next-difficulty').addEventListener('click',()=>prepareDifficulty(world.difficulty+1));
+  function recordDifficultyResult(){
+    $('difficulty-unlock').hidden=world.result!=='victory';
+    if(world.result==='victory'){
+      const previous=progress.highestCleared;progress=P.complete(progress,world.difficulty,world.result);const saved=persistProgress(),next=world.difficulty+1;
+      $('unlock-title').textContent=progress.highestCleared>previous?`難易度${next} 解放！`:`次の挑戦：難易度${next}（解放済み）`;
+      changeList($('unlock-changes'),world.difficulty,next);$('next-difficulty').textContent=`難易度${next}へ`;
+      $('unlock-save-status').textContent=saved?'解放状況を保存しました。再起動後も選択できます。':'保存できません。このページを閉じると今回の解放状況が失われます。';
+    }
+    $('choose-result-difficulty').hidden=progress.highestCleared===0;
+  }
   function draw() { renderer.sync(world, { selected, buildKind, reduced: reduced() }); }
   $('start-run').addEventListener('click',()=>{if(E.start(world)){last=performance.now();render();notice('ゲーム開始。通常速度で進行します。ヘルプ・報酬選択中も戦闘は続きます。');}});
   function setMode(next,kind=null) {
@@ -128,9 +183,11 @@
     const keep=world.tiles[world.keepId].building;$('keep-hp').textContent=`${Math.max(0,Math.ceil(keep.hp))} / ${keep.maxHp}`;$('keep-bar').style.width=`${Math.max(0,keep.hp/keep.maxHp)*100}%`;
     $('army').textContent=`Worker ${world.units.filter(u=>u.kind==='worker').length} ・ Soldier ${world.units.filter(u=>u.kind==='soldier').length}`;
     $('territory').textContent=`領土 ${world.tiles.filter(t=>t.revealed).length} / 400 · 敵 ×${E.enemyMultiplier(world).toFixed(2)}`;
+    $('difficulty-open').textContent=`難易度${world.difficulty}`;$('difficulty-open').disabled=(world.phase!=='ready'&&!world.result)||(world.result&&resultAt!==null);$('difficulty-open').title='難易度の選択は開始前または戦闘終了後に行えます。';
+    $('territory').title=`領土倍率のみ表示。難易度${world.difficulty}のHP${world.difficultySettings.enemyHp.toFixed(2)}倍・攻撃${world.difficultySettings.enemyAttack.toFixed(2)}倍を別途乗算します。`;
     $('status').textContent=world.result ? (world.result==='victory' ? 'Dragon討伐！' : '王城陥落') : world.phase==='ready'?'開始前・準備できます':world.backgroundPaused?'非表示タブ・自動停止':world.enemies.length ? `迎撃中！ 敵 ${world.enemies.length}` : '通常速度で進行中';
     $('clock').textContent=timeText(world.time);$('seed').textContent=`王国 #${world.seed}`;
-    $('raid-status').textContent=world.time<E.RAID_RULES.first?`定期出撃まで最短 ${Math.ceil(E.RAID_RULES.first-world.time)}秒（ゲーム内）。全域の未封印拠点・誤旗が対象。`:`定期出撃中：各地点60秒周期。出撃累計 ${world.raids.spawned}体 / 奇襲失敗 ${world.raids.ambushes}回。旗の正誤は非表示。`;
+    $('raid-status').textContent=world.time<E.RAID_RULES.first?`定期出撃まで最短 ${Math.ceil(E.RAID_RULES.first-world.time)}秒（ゲーム内）。全域の未封印拠点・誤旗が対象。`:`定期出撃中：各地点${world.raidRules.interval}秒周期。出撃累計 ${world.raids.spawned}体 / 奇襲失敗 ${world.raids.ambushes}回。旗の正誤は非表示。`;
     $('raid-summary').textContent=world.time<E.RAID_RULES.first?`出撃まで${Math.ceil(E.RAID_RULES.first-world.time)}秒`:`出撃中・累計${world.raids.spawned}体`;
     $('raid-summary').title=$('raid-status').textContent;
     const has=kind=>world.tiles.some(t=>t.building?.kind===kind),soldiers=world.units.filter(u=>u.kind==='soldier').length;
@@ -198,7 +255,7 @@
     if(queues!==queueKey){$('queue-list').innerHTML=queues;queueKey=queues;}
     if(lastEvent!==world.events.at(-1)) {lastEvent=world.events.at(-1);notice(lastEvent.text);$('log').replaceChildren(...world.events.slice(-6).reverse().map(e=>{const li=document.createElement('li');li.textContent=`${timeText(e.time)} ${e.text}`;return li;}));}
     renderReward();
-    if(world.result&&!resultShown){resultShown=true;resultAt=visualTime+(reduced()?.15:1.2);sheet(null);if(world.result==='victory'){$('viewport').classList.add('celebrate');selected=world.dragonId;center(selected);renderer.playEffect({kind:'victory',...E.xy(selected)});sound(true);}notice(world.result==='victory'?'⚑ ドラゴン討伐！ 王国に平和が戻った！':'王城のHPが0になり、陥落しました。');$('result-label').textContent=world.result==='victory' ? 'VICTORY' : 'DEFEAT';$('result-title').textContent=world.result==='victory' ? '王国に平和が戻った！' : '王城が陥落しました';$('result-summary').textContent=`経過 ${timeText(world.time)} ・ 討伐 ${world.kills}体 ・ 領土 ${world.tiles.filter(t=>t.revealed).length}マス ・ 建物 ${world.tiles.filter(t=>t.building&&t.building.hp>0).length}棟 ・ 生存兵士 ${soldiers}体`;}
+    if(world.result&&!resultShown){resultShown=true;recordDifficultyResult();resultAt=visualTime+(reduced()?.15:1.2);sheet(null);if(world.result==='victory'){$('viewport').classList.add('celebrate');selected=world.dragonId;center(selected);renderer.playEffect({kind:'victory',...E.xy(selected)});sound(true);}notice(world.result==='victory'?'⚑ ドラゴン討伐！ 王国に平和が戻った！':'王城のHPが0になり、陥落しました。');$('result-label').textContent=world.result==='victory' ? 'VICTORY' : 'DEFEAT';$('result-title').textContent=world.result==='victory' ? '王国に平和が戻った！' : '王城が陥落しました';$('result-summary').textContent=`難易度${world.difficulty} ・ 経過 ${timeText(world.time)} ・ 討伐 ${world.kills}体 ・ 領土 ${world.tiles.filter(t=>t.revealed).length}マス ・ 建物 ${world.tiles.filter(t=>t.building&&t.building.hp>0).length}棟 ・ 生存兵士 ${soldiers}体`;}
   }
   function center(id=world.keepId) {const t=world.tiles[id];viewport.scrollLeft=(t.x+.5)*CELL*zoom-viewport.clientWidth/2;viewport.scrollTop=(t.y+.5)*CELL*zoom-viewport.clientHeight/2;}
   function fitMap(){
@@ -237,7 +294,7 @@
   document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
   $('zoom-in').addEventListener('click',()=>setZoom(zoom+.2));$('zoom-out').addEventListener('click',()=>setZoom(zoom-.2));$('center').addEventListener('click',()=>{selected=world.keepId;center();render();});
   document.addEventListener('keydown',e=>{if(e.target===viewport){const t=world.tiles[selected],delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(delta){e.preventDefault();selected=E.index(Math.max(0,Math.min(19,t.x+delta[0])),Math.max(0,Math.min(19,t.y+delta[1])));center(selected);render();}if(e.key==='Enter'){e.preventDefault();operate(selected);}if(e.code==='Space')e.preventDefault();}});
-  function restart(seed){world=E.create(seed,{autoZero:autoZeroPreference});selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;rewardShown=null;seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');center();render();}
+  function restart(seed,difficulty=world.difficulty){$('difficulty-unlock').hidden=true;world=E.create(seed,{autoZero:autoZeroPreference,difficulty});selected=world.keepId;resultShown=false;resultAt=null;guideStage=0;rewardShown=null;seenEffects=new WeakSet();$('viewport').classList.remove('celebrate');sheet(null);lastEvent=null;actionKey='';queueKey='';pointer=null;$('upgrade-choices').dataset.rewardId='';setMode('explore');center();render();}
   $('replay').addEventListener('click',()=>{const seed=world.seed;$('result').close();restart(seed);});
   $('restart').addEventListener('click',()=>{$('confirm').showModal();render();});
   $('cancel-restart').addEventListener('click',()=>$('confirm').close());
@@ -247,7 +304,7 @@
   function frame(now){const elapsed=Math.min(.25,(now-last)/1000);last=now;visualTime+=elapsed;let remaining=elapsed;while(remaining>0&&!world.result){const dt=Math.min(.05,remaining);E.tick(world,dt);for(const effect of world.effects)if(!seenEffects.has(effect)){seenEffects.add(effect);renderer.playEffect(effect);if(effect.kind==='build'||effect.kind==='conquest')sound(true);}remaining-=dt;}if(feedbackUntil<visualTime)$('feedback').hidden=true;uiElapsed+=elapsed;if(uiElapsed>.2){render();uiElapsed=0;}if(resultAt!==null&&visualTime>=resultAt){resultAt=null;for(const id of ['treasure','help','confirm'])if($(id).open)$(id).close();$('result').showModal();}draw();}
   Promise.all(assetNames.map(name=>new Promise(resolve=>{const img=new Image();img.onload=()=>{assets[name]=img;resolve(true);};img.onerror=()=>resolve(false);img.src=`assets/${name}.png`;}))).then(async results=>{
     renderer=new window.KingdomRenderer(canvas,assets,frame); await renderer.ready;
-    last=performance.now(); $('loading').hidden=true;setZoom(zoom);center();render();draw();if(firstHelp)openHelp(true);
+    last=performance.now(); $('loading').hidden=true;setZoom(zoom);center();render();draw();if(firstHelp)openHelp(true);else if(pendingInitialDifficulty)openDifficulty();
     if(results.some(ok=>!ok))notice('一部の画像が読み込めませんでした。再読み込みしてください。');
   }).catch(error=>{console.error('Kingdom renderer initialization failed',error);$('loading').hidden=false;$('loading').textContent='描画を開始できませんでした。再読み込みするか、別のブラウザをお試しください。';});
 })();
