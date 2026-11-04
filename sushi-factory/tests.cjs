@@ -17,8 +17,8 @@ test('猫は指定した側から取り、指定した側へ渡す',()=>{const s
 test('猫のフィルターは別の食材を取り出さない',()=>{const s=empty(),src=add(s,0,0,'source','rice'),c=add(s,1,0,'cat');add(s,2,0,'belt');src.out=['rice'];c.filter='tuna';s.running=true;tick(s,1);assert.equal(src.out.length,1);assert.equal(E.at(s,2,0).packet,null);});
 test('猫同士が同じ入荷箱を取り合っても複製しない',()=>{const s=empty(),src=add(s,1,1,'source','rice');add(s,2,1,'cat');add(s,3,1,'belt');add(s,1,2,'cat','',1);add(s,1,3,'belt');src.out=['rice'];s.running=true;tick(s,1);assert.equal([E.at(s,3,1),E.at(s,1,3)].filter(e=>e.packet).length,1);});
 test('レーンから調理台への直接搬入は禁止',()=>{const s=empty(),a=add(s,0,0,'belt'),m=add(s,1,0,'machine','cook');a.packet={type:'rice',dir:0};s.running=true;tick(s,10);assert.ok(a.packet);assert.deepEqual(m.inv,{});});
-test('材料不一致・保管上限',()=>{const e=E.entity('machine','tunaGrip');assert.equal(E.accepts(e,'rice',0,true),false);e.inv.shari=4;assert.equal(E.accepts(e,'shari',0,true),false);assert.equal(E.accepts(e,'tunaCut',0,true),true);});
-test('全レシピで必要材料だけを消費して1個完成',()=>{for(const [id,r] of Object.entries(E.RECIPES)){const s=empty(),m=add(s,0,0,'machine',id);m.inv={...r.inputs};s.running=true;tick(s,r.time+2);assert.deepEqual(m.out,[r.output]);assert.ok(Object.values(m.inv).every(n=>n===0));}});
+test('材料不一致・保管上限',()=>{const e=E.entity('machine','grip');assert.equal(E.accepts(e,'rice',0,true),false);e.inv.shari=4;assert.equal(E.accepts(e,'shari',0,true),false);assert.equal(E.accepts(e,'tunaCut',0,true),true);});
+test('全レシピで必要材料だけを消費して1個完成',()=>{for(const [id,r] of Object.entries(E.RECIPES)){const s=empty(),m=add(s,0,0,'machine',Object.keys(E.MACHINES).find(k=>E.MACHINES[k].recipes.includes(id)));m.inv={...r.inputs};s.running=true;tick(s,r.time+2);assert.deepEqual(m.out,[r.output]);assert.ok(Object.values(m.inv).every(n=>n===0));}});
 test('材料が不足している間は消費しない',()=>{const s=empty(),m=add(s,0,0,'machine','makiRoll');m.inv={shari:2,nori:2};s.running=true;tick(s,100);assert.equal(m.inv.shari,2);assert.equal(m.out.length,0);});
 test('分岐器が2方向に交互搬送',()=>{const s=empty(),a=add(s,1,1,'splitter'),f=add(s,2,1,'belt'),l=add(s,1,0,'belt');s.running=true;a.packet={type:'rice',dir:0};tick(s,1);assert.ok(f.packet);a.packet={type:'rice',dir:0};tick(s,1);assert.ok(l.packet);});
 test('分岐フィルターは指定食材を左、それ以外を直進',()=>{for(const [item,pos] of [['rice',[1,0]],['tuna',[2,1]]]){const s=empty(),a=add(s,1,1,'splitter');a.filter='rice';add(s,1,0,'belt');add(s,2,1,'belt');a.packet={type:item,dir:0};s.running=true;tick(s,1);assert.equal(E.at(s,...pos).packet.type,item);}});
@@ -30,12 +30,41 @@ test('壊れた保存データを拒否',()=>{assert.throws(()=>E.restore('{'));
 test('実搬送で3種類の注文を順に達成できる',()=>{
   const s=E.create();add(s,9,5,'belt');s.running=true;tick(s,400);assert.equal(s.stage,1);
   const replace=(x,y,t,o)=>{E.remove(s,x,y);add(s,x,y,t,o);};
-  replace(1,7,'source','salmon');replace(3,7,'machine','salmonPrep');replace(6,5,'machine','salmonGrip');
-  // Rebuilding clears old tuna stuck on the feeder. This is the same refundable UI operation.
-  for(const [x,y,d] of [[5,7,0],[6,7,3]]){E.remove(s,x,y);add(s,x,y,'belt','',d);}
+  replace(1,7,'source','salmon'); // Reuse both stations with salmon on the same line.
   tick(s,450);assert.equal(s.stage,2);assert.ok(s.sold.salmonSushi>=20);
-  replace(1,7,'source','cucumber');replace(3,7,'machine','cucumberPrep');replace(6,5,'machine','makiRoll');
+  replace(1,7,'source','cucumber');replace(3,7,'machine','prep');replace(6,5,'machine','makiRoll');
   for(const [x,y,d] of [[5,7,0],[6,7,3]]){E.remove(s,x,y);add(s,x,y,'belt','',d);}
   add(s,4,5,'source','nori');add(s,5,5,'cat');tick(s,500);assert.equal(s.stage,3);assert.ok(s.sold.maki>=20);
+});
+test('どの側の通過皿も一度だけ提供、材料と斜めの皿は通過',()=>{
+  for(let side=0;side<4;side++){
+    const s=empty(), [dx,dy]=E.DIR[side], lane=add(s,4,4,'belt','',(side+1)%4);
+    add(s,4+dx,4+dy,'counter');add(s,4-dx,4-dy,'counter');
+    const before=s.coins;lane.packet={type:'salmonSushi',dir:0};tick(s,1);assert.ok(lane.packet);
+    s.running=true;tick(s,3);assert.equal(s.sold.salmonSushi,1);assert.equal(s.coins,before+16);
+    lane.packet={type:'shari',dir:0};tick(s,1);assert.equal(lane.packet.type,'shari');
+  }
+  const s=empty(), lane=add(s,1,1,'belt');add(s,2,2,'counter');lane.packet={type:'maki',dir:0};s.running=true;tick(s,1);assert.ok(lane.packet);
+});
+test('客席は次のマスに進む前に皿を取り、猫と競合しても一度だけ精算',()=>{
+  const s=empty(), lane=add(s,1,1,'belt');add(s,2,1,'belt');add(s,1,0,'counter');
+  add(s,1,2,'cat','',1);add(s,1,3,'counter');lane.packet={type:'maki',dir:0};s.running=true;
+  const money=s.coins;tick(s,1);assert.equal(s.coins,money+22);assert.equal(E.at(s,2,1).packet,null);assert.equal(s.sold.maki,1);
+});
+test('混在する魚は交互に握り、仕込みは3種類を順番に加工',()=>{
+  const s=empty(), grip=add(s,0,0,'machine','grip'), prep=add(s,2,0,'machine','prep');
+  grip.inv={shari:4,tunaCut:2,salmonCut:2};prep.inv={salmon:1,cucumber:1,tuna:1};
+  s.running=true;tick(s,60);assert.deepEqual(grip.out,['tunaSushi','salmonSushi','tunaSushi','salmonSushi']);
+  assert.deepEqual(prep.out,['tunaCut','salmonCut','cucumberCut']);
+});
+test('旧専用台は材料・完成品・進行中のレシピを維持し一回だけ完成',()=>{
+  for(const [recipe,station] of Object.entries({tunaGrip:'grip',salmonGrip:'grip',tunaPrep:'prep',salmonPrep:'prep',cucumberPrep:'prep',cook:'cook',makiRoll:'makiRoll'})){
+    const s=empty(), m=add(s,2,2,'machine',station), r=E.RECIPES[recipe];s.version=1;
+    m.option=recipe;m.progress=r.time-1;m.out=[r.output];m.inv={...r.inputs};delete m.activeRecipe;
+    const loaded=E.restore(JSON.stringify(s)), work=E.at(loaded,2,2);
+    assert.equal(work.option,station);assert.equal(work.activeRecipe,recipe);assert.equal(work.progress,r.time-1);assert.equal(loaded.running,false);
+    const again=E.restore(E.save(loaded));again.running=true;tick(again,2);
+    assert.deepEqual(E.at(again,2,2).out,[r.output,r.output]);assert.deepEqual(E.at(again,2,2).inv,r.inputs);
+  }
 });
 console.log(passed+' tests passed');

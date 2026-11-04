@@ -14,7 +14,7 @@
   const catalog={
     transport:[['belt','','▰','寿司レーン'],['cat','','🐈','おてつだい猫'],['counter','','🍵','客席'],['splitter','','⑂','分岐器'],['bridge','','╬','立体交差']],
     source:[['source','rice','🌾','米の入荷'],['source','tuna','🐟','まぐろの入荷'],['source','salmon','🐟','サーモンの入荷'],['source','cucumber','🥒','きゅうりの入荷'],['source','nori','▣','海苔の入荷']],
-    machine:[['machine','cook','♨','炊飯釜'],['machine','tunaPrep','🔪','まぐろ仕込み'],['machine','tunaGrip','🍣','まぐろ握り'],['machine','salmonPrep','🔪','サーモン仕込み'],['machine','salmonGrip','🍣','サーモン握り'],['machine','cucumberPrep','🔪','きゅうり仕込み'],['machine','makiRoll','🍥','巻き寿司台']]
+    machine:[['machine','cook','♨','炊飯釜'],['machine','prep','🔪','仕込み台'],['machine','grip','🍣','握り台'],['machine','makiRoll','🍥','巻き寿司台']]
   };
   function notify(text){$('toast').textContent=text;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),4800);}
   function saveMessage(message,error=false){
@@ -61,8 +61,8 @@
   function inspect(){
     const e=selected&&E.at(s,selected.x,selected.y);$('editControls').hidden=!e;
     if(!e){$('detail').innerHTML=tool&&tool!=='erase'?'<strong>'+toolName()+'を配置 '+arrows[dir]+'</strong><br><small>空きマスをタップ。向きボタンで回転できます。</small>':!E.at(s,9,5)&&s.stage===0?'まずは点線のマスにレーンを1本置こう。<br><small>「レーン」を選ぶ → 光るマスをタップ → 稼働する</small>':'設備をタップすると、材料と詰まりの原因を確認できます。';return;}
-    const name=e.type==='machine'?E.RECIPES[e.option].name:e.type==='source'?E.ITEMS[e.option][0]+'の入荷':names[e.type];
-    let extra='';if(e.type==='machine') extra=Object.keys(E.RECIPES[e.option].inputs).map(i=>E.ITEMS[i][0]+' '+(e.inv[i]||0)+'/4').join(' ｜ ');
+    const name=e.type==='machine'?E.MACHINES[e.option].name:e.type==='source'?E.ITEMS[e.option][0]+'の入荷':names[e.type];
+    let extra='';if(e.type==='machine') extra=E.inputTypes(e.option,s.stage).map(i=>E.ITEMS[i][0]+' '+(e.inv[i]||0)+'/4').join(' ｜ ');
     if(e.type==='source'||e.type==='machine')extra+=(extra?' ｜ ':'')+'完成 '+e.out.length+'/4';
     if(e.type==='cat')extra='取る側 '+arrows[e.input]+' → 渡す側 '+arrows[e.dir];
     $('detail').replaceChildren();const title=document.createElement('strong');title.textContent=name+' ('+(selected.x+1)+','+(selected.y+1)+')';const line=document.createElement('div');line.textContent=E.status(e);const small=document.createElement('small');small.textContent=extra;$('detail').append(title,line,small);
@@ -181,8 +181,8 @@
         const blocked=E.status(e)==='搬出口が満杯';round(z*.06,z*.2,z*.88,z*.71,z*.09,'#a67b53');round(z*.06,z*.15,z*.88,z*.63,z*.09,'#efdbb5');
         cat(z*.68,z*.31,z*.56,e.progress>0,t);
         if(e.option==='cook'){round(z*.15,z*.35,z*.42,z*.29,z*.08,'#6f8c81');round(z*.12,z*.31,z*.48,z*.09,z*.03,'#abbca7');if(e.progress&&!motion)label('♨',z*.3,z*.19,z*.25,'#fff');}
-        else {round(z*.12,z*.35,z*.45,z*.28,z*.03,'#bc975e');food(E.RECIPES[e.option].output,z*.34,z*.48,z*.6);}
-        round(z*.14,z*.81,z*.72,z*.055,2,'#967959');if(e.progress)round(z*.14,z*.81,z*.72*Math.min(1,e.progress/E.RECIPES[e.option].time),z*.055,2,'#78a36a');
+        else {round(z*.12,z*.35,z*.45,z*.28,z*.03,'#bc975e');const sample=e.activeRecipe ? E.RECIPES[e.activeRecipe].output : e.out[0];if(sample)food(sample,z*.34,z*.48,z*.6);}
+        round(z*.14,z*.81,z*.72,z*.055,2,'#967959');if(e.progress)round(z*.14,z*.81,z*.72*Math.min(1,e.progress/E.RECIPES[e.activeRecipe].time),z*.055,2,'#78a36a');
         ctx.fillStyle=blocked?'#d9784e':e.progress?'#68a16c':'#c8b97b';ctx.beginPath();ctx.arc(z*.84,z*.67,z*.045,0,Math.PI*2);ctx.fill();
       }else if(e.type==='counter'){
         round(z*.04,z*.55,z*.92,z*.32,z*.05,'#a97951');cat(z*.5,z*.35,z*.88,e.progress>0,t);round(z*.04,z*.51,z*.92,z*.14,z*.04,'#dcc296');label('客席',z*.5,z*.77,z*.18,'#fff3d7');if(e.progress)label('♥',z*.83,z*.15,z*.25,'#d8755f');
