@@ -6,6 +6,9 @@
   let s=E.create(), loadError='', motion=matchMedia('(prefers-reduced-motion: reduce)').matches;
   try {const raw=localStorage.getItem(SAVE);if(raw)s=E.restore(raw);motion=localStorage.getItem(PREF)==='1'||motion;} catch {loadError='保存データを読み込めませんでした。新しい工場を表示しています。';}
   let tool=null, category='transport', dir=0, selected=null, cursor={x:9,y:5}, scale=48, ox=0,oy=0, cw=0,ch=0, lastStage=-1, toastTimer, lastTime=0, accumulator=0, zoomed=false;
+  let panel=null, saveIssue='';
+  const panels={build:'buildPanel',inspect:'inspector',order:'orderPanel',menu:'menuPanel'};
+  const panelButtons={build:'buildToggle',order:'orderToggle',menu:'menuToggle'};
   const arrows=['→','↓','←','↑'];
   const names={belt:'寿司レーン',cat:'おてつだい猫',source:'入荷箱',counter:'客席',splitter:'分岐器',bridge:'立体交差'};
   const catalog={
@@ -14,9 +17,23 @@
     machine:[['machine','cook','♨','炊飯釜'],['machine','tunaPrep','🔪','まぐろ仕込み'],['machine','tunaGrip','🍣','まぐろ握り'],['machine','salmonPrep','🔪','サーモン仕込み'],['machine','salmonGrip','🍣','サーモン握り'],['machine','cucumberPrep','🔪','きゅうり仕込み'],['machine','makiRoll','🍥','巻き寿司台']]
   };
   function notify(text){$('toast').textContent=text;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),4800);}
-  function persist(){if(loadError){$('saveStatus').textContent='保存エラー：元データを保護中。新しい工場でリセット可能';return;}try{localStorage.setItem(SAVE,E.save(s));$('saveStatus').textContent='自動保存済み・離席中は停止';}catch{$('saveStatus').textContent='保存できません。この画面を閉じると進行が失われます';}}
+  function saveMessage(message,error=false){
+    $('saveStatus').textContent=message;$('saveBadge').textContent=error?'保存エラー：☰で確認':'自動保存済み';
+    $('saveBadge').classList.toggle('save-error',error);
+    if(error&&saveIssue!==message)notify(message);
+    saveIssue=error?message:'';
+  }
+  function persist(){if(loadError){saveMessage('保存エラー：元データを保護中。新しい工場でリセット可能',true);return;}try{localStorage.setItem(SAVE,E.save(s));saveMessage('自動保存済み・離席中は停止');}catch{saveMessage('保存できません。この画面を閉じると進行が失われます',true);}}
+  function setPanel(next){
+    panel=next;
+    for(const [name,id] of Object.entries(panels))$(id).hidden=name!==next;
+    for(const [name,id] of Object.entries(panelButtons))$(id).setAttribute('aria-expanded',String(name===next));
+    document.querySelector('.workshop').classList.toggle('panel-open',!!next);
+    $('buildToggle').classList.toggle('active',next==='build'||!!(tool&&tool!=='erase'));
+  }
+  function closePanel(){const previous=panel;setPanel(null);if(previous==='inspect'){selected=null;canvas.focus();}else if(panelButtons[previous])$(panelButtons[previous]).focus();}
   function setRunning(value){s.running=value;accumulator=0;lastTime=performance.now();persist();refresh();}
-  function toolName(){return tool==='erase'?'撤去':!tool?'移動・設備の確認':catalog[category].find(t=>t[0]===tool.type&&t[1]===tool.option)?.[3]||names[tool.type];}
+  function toolName(){return tool==='erase'?'撤去':!tool?'移動・設備の確認':Object.values(catalog).flat().find(t=>t[0]===tool.type&&t[1]===tool.option)?.[3]||names[tool.type];}
   function palette(){
     $('palette').replaceChildren();
     for(const [type,option,icon,name] of catalog[category]){
@@ -24,9 +41,10 @@
       b.className='tile'+(tool?.type===type&&tool?.option===option?' active':'');b.disabled=locked;
       b.innerHTML='<span class="icon">'+icon+'</span><span class="cost">'+(locked?'🔒':E.COST[type]+'円')+'</span><span class="name">'+name+'</span>';
       b.title=locked ? (level===1?'まぐろ':'サーモン')+'の注文達成で解放' : name+' '+E.COST[type]+'円';
-      b.setAttribute('aria-label',b.title);b.onclick=()=>{tool={type,option};selected=null;palette();refresh();};$('palette').append(b);
+      b.setAttribute('aria-label',b.title);b.onclick=()=>{tool={type,option};selected=null;setPanel(null);palette();refresh();canvas.focus();};$('palette').append(b);
     }
     $('hand').classList.toggle('active',!tool);$('erase').classList.toggle('active',tool==='erase');
+    $('buildToggle').classList.toggle('active',panel==='build'||!!(tool&&tool!=='erase'));
     $('toolHint').textContent=tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「移動」に切り替え。':tool?.type==='cat'?'猫は矢印の反対側から取り、矢印へ渡します。配置後に変更できます。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
   }
   function refresh(){
@@ -37,6 +55,7 @@
     $('goal').textContent=g?g.title:'猫たちと、もっと大きな工場へ';$('goalCount').textContent=g?Math.min(g.count,s.sold[g.item])+' / '+g.count:'自由建設';$('progress').value=g?Math.min(g.count,s.sold[g.item]):20;
     $('unlock').textContent=g?'解放：'+g.unlock+' ／ 報酬 '+g.reward+'円':'全設備が使えます。生産ラインを好きなだけ改良しよう。';
     if(lastStage!==s.stage){lastStage=s.stage;palette();}
+    $('guide').textContent=tool==='erase'?'撤去で建設費を全額返却。内部の食材は廃棄されます。':tool?toolName()+'を配置 '+arrows[dir]+' ／ 空きマスをタップ':!E.at(s,9,5)&&s.stage===0?'「建設」からレーンを選び、点線のマスをつなごう。':'ドラッグで盤面を移動。設備をタップすると詳細を開きます。';
     inspect();
   }
   function inspect(){
@@ -53,33 +72,51 @@
   $('filter').add(new Option('指定なし',''));for(const [k,v] of Object.entries(E.ITEMS))$('filter').add(new Option(v[0],k));
   $('filter').onchange=()=>{const e=selected&&E.at(s,selected.x,selected.y);if(e){e.filter=$('filter').value;persist();}};
   $('play').onclick=()=>setRunning(!s.running);
-  $('hand').onclick=()=>{tool=null;palette();refresh();};$('erase').onclick=()=>{tool='erase';selected=null;palette();refresh();};
+  $('buildToggle').onclick=()=>{selected=null;setPanel(panel==='build'?null:'build');palette();refresh();};
+  $('orderToggle').onclick=()=>setPanel(panel==='order'?null:'order');
+  $('menuToggle').onclick=()=>setPanel(panel==='menu'?null:'menu');
+  document.querySelectorAll('[data-close-panel]').forEach(b=>b.onclick=closePanel);
+  $('hand').onclick=()=>{tool=null;selected=null;setPanel(null);palette();refresh();};$('erase').onclick=()=>{tool='erase';selected=null;setPanel(null);palette();refresh();};
   $('rotate').onclick=()=>{dir=(dir+1)%4;refresh();};
   $('rotateSelected').onclick=()=>{const e=E.at(s,selected.x,selected.y);e.dir=(e.dir+1)%4;if(e.type==='cat'&&e.input===e.dir)e.input=(e.input+1)%4;persist();refresh();};
   $('rotateInput').onclick=()=>{const e=E.at(s,selected.x,selected.y);e.input=(e.input+1)%4;if(e.input===e.dir)e.input=(e.input+1)%4;persist();refresh();};
-  $('deleteSelected').onclick=()=>{if(selected){E.remove(s,selected.x,selected.y);selected=null;persist();refresh();}};
+  $('deleteSelected').onclick=()=>{if(selected){E.remove(s,selected.x,selected.y);selected=null;setPanel(null);persist();refresh();canvas.focus();}};
   document.querySelectorAll('[data-category]').forEach(b=>b.onclick=()=>{category=b.dataset.category;document.querySelectorAll('[data-category]').forEach(x=>x.classList.toggle('active',x===b));palette();});
-  $('help').onclick=()=>{setRunning(false);$('helpDialog').showModal();};$('helpDone').onclick=()=>$('helpDialog').close();
+  $('help').onclick=()=>{setRunning(false);setPanel(null);$('helpDialog').showModal();};$('helpDone').onclick=()=>$('helpDialog').close();
+  for(const id of ['helpDialog','resetDialog'])$(id).addEventListener('close',()=>$('menuToggle').focus());
   $('reduceMotion').checked=motion;$('reduceMotion').onchange=()=>{motion=$('reduceMotion').checked;try{localStorage.setItem(PREF,motion?'1':'0');}catch{}};
-  $('newGame').onclick=()=>{setRunning(false);$('resetDialog').showModal();};$('cancelReset').onclick=()=>$('resetDialog').close();
-  $('confirmReset').onclick=()=>{s=E.create();loadError='';selected=null;tool=null;lastStage=-1;fit();if(scale<44)zoom(44/scale);persist();palette();refresh();$('resetDialog').close();notify('新しい工場を準備しました');};
-  function fit(){scale=Math.min(62,(cw-24)/s.width,(ch-24)/s.height);ox=(cw-s.width*scale)/2;oy=(ch-s.height*scale)/2;zoomed=true;}
-  function zoom(f,px=cw/2,py=ch/2){const next=Math.max(18,Math.min(96,scale*f));ox=px-(px-ox)*next/scale;oy=py-(py-oy)*next/scale;scale=next;clampView();}
-  function clampView(){ox=Math.max(40-s.width*scale,Math.min(cw-40,ox));oy=Math.max(40-s.height*scale,Math.min(ch-40,oy));}
+  $('newGame').onclick=()=>{setRunning(false);setPanel(null);$('resetDialog').showModal();};$('cancelReset').onclick=()=>$('resetDialog').close();
+  $('confirmReset').onclick=()=>{s=E.create();loadError='';selected=null;tool=null;lastStage=-1;setPanel(null);defaultView();persist();palette();refresh();$('resetDialog').close();notify('新しい工場を準備しました');};
+  function mapArea(includePanel=false){
+    const base=canvas.getBoundingClientRect(),hud=$('hud').getBoundingClientRect(),dock=$('dock').getBoundingClientRect();
+    let left=12,top=hud.bottom-base.top+12,right=cw-72,bottom=dock.top-base.top-48;
+    if(cw>=540&&ch<=500)right=cw-12;
+    if(includePanel&&panel){const r=$(panels[panel]).getBoundingClientRect();if(cw>760&&panel==='inspect')right=Math.min(right,r.left-base.left-12);else if(panel==='build'||panel==='inspect')bottom=Math.min(bottom,r.top-base.top-12);}
+    return {left,top,width:Math.max(80,right-left),height:Math.max(80,bottom-top)};
+  }
+  function centerOn(x,y,includePanel=false){const a=mapArea(includePanel);ox=a.left+a.width/2-(x+.5)*scale;oy=a.top+a.height/2-(y+.5)*scale;}
+  function fit(){const a=mapArea();scale=Math.min(62,a.width/s.width,a.height/s.height);ox=a.left+(a.width-s.width*scale)/2;oy=a.top+(a.height-s.height*scale)/2;zoomed=true;}
+  function defaultView(){fit();if(scale<44){scale=44;centerOn(cw<600&&s.stage===0?8:(s.width-1)/2,(s.height-1)/2);}}
+  function zoom(f,px,py){if(px===undefined){const a=mapArea();px=a.left+a.width/2;py=a.top+a.height/2;}const next=Math.max(18,Math.min(96,scale*f));ox=px-(px-ox)*next/scale;oy=py-(py-oy)*next/scale;scale=next;clampView();}
+  function clampView(){const a=mapArea();ox=Math.max(a.left+44-s.width*scale,Math.min(a.left+a.width-44,ox));oy=Math.max(a.top+44-s.height*scale,Math.min(a.top+a.height-44,oy));}
   $('fit').onclick=fit;$('zoomIn').onclick=()=>zoom(1.25);$('zoomOut').onclick=()=>zoom(.8);
-  new ResizeObserver(()=>{const r=canvas.getBoundingClientRect();cw=r.width;ch=r.height;const d=devicePixelRatio||1;canvas.width=Math.round(cw*d);canvas.height=Math.round(ch*d);ctx.setTransform(d,0,0,d,0,0);if(!zoomed){fit();if(scale<44)zoom(44/scale);}else clampView();}).observe(canvas);
+  function layoutBounds(){const r=canvas.getBoundingClientRect();document.documentElement.style.setProperty('--top-clear',($('hud').getBoundingClientRect().bottom-r.top+8)+'px');document.documentElement.style.setProperty('--bottom-clear',(r.bottom-$('dock').getBoundingClientRect().top+10)+'px');}
+  const uiSize=new ResizeObserver(layoutBounds);uiSize.observe($('hud'));uiSize.observe($('dock'));
+  new ResizeObserver(()=>{const r=canvas.getBoundingClientRect(),oldW=cw,oldH=ch;cw=r.width;ch=r.height;const d=devicePixelRatio||1;canvas.width=Math.round(cw*d);canvas.height=Math.round(ch*d);ctx.setTransform(d,0,0,d,0,0);layoutBounds();if(!zoomed)defaultView();else{ox+=(cw-oldW)/2;oy+=(ch-oldH)/2;clampView();}}).observe(canvas);
   const pointers=new Map();let gesture=null,pinch=0;
   function point(ev){const r=canvas.getBoundingClientRect();return {x:ev.clientX-r.left,y:ev.clientY-r.top};}
   function cell(p){return {x:Math.floor((p.x-ox)/scale),y:Math.floor((p.y-oy)/scale)};}
+  function onBoard(ev){return document.elementFromPoint(ev.clientX,ev.clientY)===canvas;}
+  function exposed(c){const r=canvas.getBoundingClientRect();return document.elementFromPoint(r.left+ox+(c.x+.5)*scale,r.top+oy+(c.y+.5)*scale)===canvas;}
   function act(c){
-    cursor=c;if(!tool){selected=E.at(s,c.x,c.y)?c:null;refresh();return false;}
+    cursor=c;if(!tool){selected=E.at(s,c.x,c.y)?c:null;setPanel(selected?'inspect':null);refresh();if(selected)centerOn(c.x,c.y,true);return false;}
     if(tool==='erase'){const error=E.remove(s,c.x,c.y);if(error)notify(error);else{selected=null;persist();refresh();}return !error;}
     const error=E.place(s,c.x,c.y,tool.type,tool.option,dir);if(error){selected=E.at(s,c.x,c.y)?c:null;notify(error);}else{selected=c;persist();}refresh();return !error;
   }
-  canvas.addEventListener('pointerdown',ev=>{if(ev.button!==0)return;canvas.setPointerCapture(ev.pointerId);const p=point(ev);pointers.set(ev.pointerId,p);if(pointers.size===2){pinch=distance();gesture=null;return;}gesture={start:p,last:p,moved:false,cell:cell(p),built:null};});
+  canvas.addEventListener('pointerdown',ev=>{if(ev.button!==0||!onBoard(ev))return;canvas.setPointerCapture(ev.pointerId);const p=point(ev);pointers.set(ev.pointerId,p);if(pointers.size===2){pinch=distance();gesture=null;return;}gesture={start:p,last:p,moved:false,cell:cell(p),built:null};});
   function distance(){const a=[...pointers.values()];return Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}
   canvas.addEventListener('pointermove',ev=>{
-    if(!pointers.has(ev.pointerId))return;const p=point(ev);pointers.set(ev.pointerId,p);
+    if(!pointers.has(ev.pointerId))return;if(!onBoard(ev)){if(gesture?.built)persist();gesture=null;pointers.delete(ev.pointerId);pinch=0;return;}const p=point(ev);pointers.set(ev.pointerId,p);
     if(pointers.size===2){const d=distance(),a=[...pointers.values()];if(pinch)zoom(d/pinch,(a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2);pinch=d;return;}
     if(!gesture)return;const g=gesture;if(Math.hypot(p.x-g.start.x,p.y-g.start.y)>6)g.moved=true;
     if(g.moved&&!tool){ox+=p.x-g.last.x;oy+=p.y-g.last.y;clampView();}
@@ -89,16 +126,17 @@
       while(g.built&&(c.x!==g.built.x||c.y!==g.built.y)&&safety++<40){
         const prev=g.built,dx=Math.sign(c.x-prev.x),dy=dx?0:Math.sign(c.y-prev.y),d=dx===1?0:dx===-1?2:dy===1?1:3;
         const next={x:prev.x+dx,y:prev.y+dy};
+        if(!exposed(next))break;
         const error=E.place(s,next.x,next.y,'belt','',d);
         if(error){notify(error);break;}
         E.at(s,prev.x,prev.y).dir=d;g.built=next;selected=next;dir=d;
       }refresh();
     }g.last=p;
   });
-  function end(ev){pointers.delete(ev.pointerId);if(gesture&&!gesture.moved)act(cell(point(ev)));if(gesture?.built)persist();gesture=null;pinch=0;}
+  function end(ev){pointers.delete(ev.pointerId);if(gesture&&!gesture.moved&&onBoard(ev))act(cell(point(ev)));if(gesture?.built)persist();gesture=null;pinch=0;}
   canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',()=>{pointers.clear();gesture=null;pinch=0;persist();});
   canvas.addEventListener('wheel',ev=>{ev.preventDefault();const p=point(ev);zoom(ev.deltaY<0?1.1:1/1.1,p.x,p.y);},{passive:false});
-  document.addEventListener('keydown',ev=>{if(document.querySelector('dialog[open]')||['SELECT','INPUT'].includes(document.activeElement?.tagName))return;if(ev.key==='Escape')$('hand').click();if(ev.key.toLowerCase()==='r')$('rotate').click();if(document.activeElement!==canvas)return;const dirs={ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowUp:[0,-1]};if(dirs[ev.key]){ev.preventDefault();cursor.x=Math.max(0,Math.min(s.width-1,cursor.x+dirs[ev.key][0]));cursor.y=Math.max(0,Math.min(s.height-1,cursor.y+dirs[ev.key][1]));ox=cw/2-(cursor.x+.5)*scale;oy=ch/2-(cursor.y+.5)*scale;}if(ev.key==='Enter'){ev.preventDefault();act(cursor);}});
+  document.addEventListener('keydown',ev=>{if(document.querySelector('dialog[open]')||['SELECT','INPUT'].includes(document.activeElement?.tagName))return;if(ev.key==='Escape'){if(panel)closePanel();else $('hand').click();return;}if(ev.key.toLowerCase()==='r')$('rotate').click();if(document.activeElement!==canvas)return;const dirs={ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowUp:[0,-1]};if(dirs[ev.key]){ev.preventDefault();cursor.x=Math.max(0,Math.min(s.width-1,cursor.x+dirs[ev.key][0]));cursor.y=Math.max(0,Math.min(s.height-1,cursor.y+dirs[ev.key][1]));centerOn(cursor.x,cursor.y,true);}if(ev.key==='Enter'){ev.preventDefault();if(!exposed(cursor)){notify('パネルを閉じるか、盤面を移動してから操作してください');return;}act(cursor);}});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)setRunning(false);});window.addEventListener('pagehide',()=>{s.running=false;persist();});setInterval(persist,5000);
   function round(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
   function label(text,x,y,size,color='#314739',align='center'){ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.font='bold '+size+'px "Yu Gothic UI",sans-serif';ctx.fillText(text,x,y);}
