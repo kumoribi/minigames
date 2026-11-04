@@ -1,5 +1,7 @@
 (function (root) {
   'use strict';
+  const STEP_MS = 250;
+  const MEAL_TICKS = 3000 / STEP_MS;
   const DIR = [[1, 0], [0, 1], [-1, 0], [0, -1]];
   const ITEMS = {
     rice: ['米', '米', '#eee5cc'], shari: ['シャリ', '飯', '#fff9e9'],
@@ -107,13 +109,13 @@
     if (e.type === 'belt' || e.type === 'splitter') return !e.packet;
     if (e.type === 'bridge') return !e[dir % 2 ? 'v' : 'h'];
     if (e.type === 'machine') return viaCat && inputTypes(e.option).includes(item) && (e.inv[item] || 0) < 4;
-    return e.type === 'counter' && viaCat && !!PRICE[item];
+    return e.type === 'counter' && viaCat && !e.mealTicks && !!PRICE[item];
   }
   function put(s,e,item,dir) {
     if (e.type === 'belt' || e.type === 'splitter') e.packet = {type: item, dir};
     else if (e.type === 'bridge') e[dir % 2 ? 'v' : 'h'] = {type:item, dir};
     else if (e.type === 'machine') e.inv[item] = (e.inv[item] || 0) + 1;
-    else if (e.type === 'counter') { s.sold[item]++; s.coins += PRICE[item]; e.progress = 3; }
+    else if (e.type === 'counter') { s.sold[item]++; s.coins += PRICE[item]; e.mealTicks = MEAL_TICKS; }
   }
   function peek(e, axis, filter) {
     if (!e) return null;
@@ -139,6 +141,9 @@
     // Removing the packet here also prevents a second guest or cat claiming it.
     for (const [k, seat] of ordered) {
       if (seat.type !== 'counter') continue;
+      // Age the previous meal before either a guest or a cat can claim a plate.
+      if (seat.mealTicks > 0) seat.mealTicks--;
+      if (seat.mealTicks > 0) continue;
       const [x, y] = k.split(',').map(Number);
       for (let i = 0; i < DIR.length; i++) {
         const side = (seat.turn + i) % DIR.length;
@@ -184,7 +189,7 @@
         if(e.out.length < 4 && ++e.progress >= 6) {e.out.push(e.option); e.progress=0;}
       } else if(e.type === 'machine') {
         processMachine(e);
-      } else if(e.type==='counter' && e.progress>0) e.progress--;
+      }
     }
     const g=GOALS[s.stage];
     if(g && s.sold[g.item]>=g.count) {
@@ -204,7 +209,10 @@
     }
     if(e.type==='source') return e.out.length>=4 ? '搬出口が満杯' : '入荷中（無料）';
     if(e.type==='cat') return e.progress ? '受け渡し中' : '食材・受け渡し先を確認';
-    if(e.type==='counter') return '上下左右の寿司レーンから完成皿を取ります';
+    if(e.type==='counter') {
+      if (e.mealTicks) return '食事中（残り' + Math.ceil(e.mealTicks * STEP_MS / 1000) + '秒）';
+      return '寿司待ち：上下左右のレーンから完成皿を取ります';
+    }
     return (e.packet || e.h || e.v) ? '搬送中・前が埋まると停止' : '食材を待っています';
   }
   function save(s) { return JSON.stringify({...s,running:false,events:[]}); }
@@ -217,6 +225,8 @@
     for(const [k,e] of Object.entries(v.cells)) {
       const [x,y]=k.split(',').map(Number);
       if(key(x,y)!==k || !int(x,w-1) || !int(y,h-1) || !e || !COST[e.type] || e.cost!==COST[e.type] || !int(e.dir,3) || !int(e.input,3) || !int(e.progress,100) || !int(e.turn,1e12) || !e.inv || !Array.isArray(e.out) || e.out.length>4 || e.out.some(i=>!ITEMS[i]) || (e.filter && !ITEMS[e.filter])) throw Error('設備データが不正です');
+      if (e.type === 'counter' && e.mealTicks !== undefined && !int(e.mealTicks, MEAL_TICKS))
+        throw Error('客席の食事時間が不正です');
       if(v.version===1 && e.type==='machine') {
         const old=e.option;
         if(!Object.hasOwn(machineForRecipe,old) || unlockLevel('machine',old)>v.stage) throw Error('旧設備の種類が不正です');
@@ -230,6 +240,6 @@
     }
     v.version=2;v.running=false;v.events=[];return v;
   }
-  const api={DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
+  const api={STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
   if(typeof module!=='undefined') module.exports=api; else root.SushiEngine=api;
 })(typeof window!=='undefined'?window:globalThis);

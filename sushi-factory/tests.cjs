@@ -31,10 +31,12 @@ test('実搬送で3種類の注文を順に達成できる',()=>{
   const s=E.create();add(s,9,5,'belt');s.running=true;tick(s,400);assert.equal(s.stage,1);
   const replace=(x,y,t,o)=>{E.remove(s,x,y);add(s,x,y,t,o);};
   replace(1,7,'source','salmon'); // Reuse both stations with salmon on the same line.
-  tick(s,450);assert.equal(s.stage,2);assert.ok(s.sold.salmonSushi>=20);
+  for(let i=0;i<1200 && s.stage===1;i++) E.step(s);
+  assert.equal(s.stage,2);assert.ok(s.sold.salmonSushi>=20);
   replace(1,7,'source','cucumber');replace(3,7,'machine','prep');replace(6,5,'machine','makiRoll');
   for(const [x,y,d] of [[5,7,0],[6,7,3]]){E.remove(s,x,y);add(s,x,y,'belt','',d);}
-  add(s,4,5,'source','nori');add(s,5,5,'cat');tick(s,500);assert.equal(s.stage,3);assert.ok(s.sold.maki>=20);
+  add(s,4,5,'source','nori');add(s,5,5,'cat');for(let i=0;i<1200 && s.stage===2;i++) E.step(s);
+  assert.equal(s.stage,3);assert.ok(s.sold.maki>=20);
 });
 test('どの側の通過皿も一度だけ提供、材料と斜めの皿は通過',()=>{
   for(let side=0;side<4;side++){
@@ -66,5 +68,34 @@ test('旧専用台は材料・完成品・進行中のレシピを維持し一�
     const again=E.restore(E.save(loaded));again.running=true;tick(again,2);
     assert.deepEqual(E.at(again,2,2).out,[r.output,r.output]);assert.deepEqual(E.at(again,2,2).inv,r.inputs);
   }
+});
+test('食事中の客席を通過した皿を下流で提供',()=>{
+  const s=empty(), first=add(s,1,1,'belt'), next=add(s,2,1,'belt');
+  const guest=add(s,1,0,'counter'), downstream=add(s,2,0,'counter');
+  const money=s.coins;
+  s.running=true;first.packet={type:'maki',dir:0};tick(s,1);
+  assert.equal(guest.mealTicks,12);
+  first.packet={type:'salmonSushi',dir:0};tick(s,1);
+  assert.equal(next.packet.type,'salmonSushi');assert.equal(s.sold.salmonSushi,0);
+  tick(s,1);assert.equal(downstream.mealTicks,12);assert.equal(guest.mealTicks,10);
+  assert.equal(s.coins,money+38);assert.equal(s.sold.salmonSushi,1);
+});
+test('同じ客席への直接配膳は3秒経過後だけ成立',()=>{
+  const s=empty(), src=add(s,0,1,'belt'), seat=add(s,2,1,'counter'), side=add(s,2,0,'belt');
+  add(s,1,1,'cat');src.packet={type:'maki',dir:0};
+  side.packet={type:'tunaSushi',dir:0};s.running=true;const money=s.coins;
+  tick(s,1);assert.equal(s.coins,money+12);assert.equal(seat.mealTicks,12);
+  tick(s,11);assert.equal(seat.mealTicks,1);assert.equal(src.packet.type,'maki');
+  tick(s,1);assert.equal(src.packet,null);assert.equal(seat.mealTicks,12);assert.equal(s.coins,money+34);
+});
+test('停止と保存復元は食事の残り時間を維持し、旧保存の客席は通常受付',()=>{
+  const s=empty(), lane=add(s,0,0,'belt'), seat=add(s,0,1,'counter');
+  seat.progress=2;const old=E.restore(E.save(s));assert.match(E.status(E.at(old,0,1)),/寿司待ち/);
+  lane.packet={type:'tunaSushi',dir:0};s.running=true;tick(s,6);
+  const restored=E.restore(E.save(s)), guest=E.at(restored,0,1);
+  assert.equal(guest.mealTicks,7);assert.match(E.status(guest),/残り2秒/);
+  tick(restored,100);assert.equal(guest.mealTicks,7);
+  E.at(restored,0,0).packet={type:'maki',dir:0};restored.running=true;tick(restored,6);
+  assert.equal(restored.sold.maki,0);tick(restored,1);assert.equal(restored.sold.maki,1);
 });
 console.log(passed+' tests passed');

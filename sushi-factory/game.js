@@ -185,7 +185,15 @@
         round(z*.14,z*.81,z*.72,z*.055,2,'#967959');if(e.progress)round(z*.14,z*.81,z*.72*Math.min(1,e.progress/E.RECIPES[e.activeRecipe].time),z*.055,2,'#78a36a');
         ctx.fillStyle=blocked?'#d9784e':e.progress?'#68a16c':'#c8b97b';ctx.beginPath();ctx.arc(z*.84,z*.67,z*.045,0,Math.PI*2);ctx.fill();
       }else if(e.type==='counter'){
-        round(z*.04,z*.55,z*.92,z*.32,z*.05,'#a97951');cat(z*.5,z*.35,z*.88,e.progress>0,t);round(z*.04,z*.51,z*.92,z*.14,z*.04,'#dcc296');label('客席',z*.5,z*.77,z*.18,'#fff3d7');if(e.progress)label('♥',z*.83,z*.15,z*.25,'#d8755f');
+        const eating = e.mealTicks > 0;
+        round(z*.04,z*.55,z*.92,z*.32,z*.05,'#a97951');
+        cat(z*.5,z*.35,z*.88,eating && s.running,t);
+        round(z*.04,z*.51,z*.92,z*.14,z*.04,'#dcc296');
+        label(eating ? '食事中' : '客席',z*.5,z*.77,z*.18,'#fff3d7');
+        if (eating) {
+          round(z*.08,z*.89,z*.84,z*.06,z*.02,'#acb8a5');
+          round(z*.08,z*.89,z*.84*e.mealTicks/E.MEAL_TICKS,z*.06,z*.02,'#38674f');
+        }
       }
       if(e.out.length) {round(z*.69,z*.02,z*.28,z*.23,z*.07,'#fff9e9');label(e.out.length,z*.83,z*.14,z*.17);}
       ctx.restore();
@@ -194,6 +202,6 @@
     if(document.activeElement===canvas){ctx.strokeStyle='#477d96';ctx.lineWidth=2;ctx.strokeRect(ox+cursor.x*scale+2,oy+cursor.y*scale+2,scale-4,scale-4);}
     if(!E.at(s,9,5)&&s.stage===0&&scale>28)label('ここをつなごう',ox+9.5*scale,oy+4.6*scale,Math.max(10,scale*.18),'#986238');
   }
-  function frame(t){if(!lastTime)lastTime=t;const dt=Math.min(500,t-lastTime);lastTime=t;if(s.running){accumulator+=dt;let changed=false;while(accumulator>=250){accumulator-=250;E.step(s);changed=true;if(s.events.length){notify(s.events[0]);persist();}}if(changed)refresh();}draw(t);requestAnimationFrame(frame);}
+  function frame(t){if(!lastTime)lastTime=t;const dt=Math.min(500,t-lastTime);lastTime=t;if(s.running){accumulator+=dt;let changed=false;while(accumulator>=E.STEP_MS){accumulator-=E.STEP_MS;E.step(s);changed=true;if(s.events.length){notify(s.events[0]);persist();}}if(changed)refresh();}draw(t);requestAnimationFrame(frame);}
   palette();refresh();requestAnimationFrame(frame);if(loadError)notify(loadError);
 })();
