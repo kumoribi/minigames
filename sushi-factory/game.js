@@ -7,6 +7,7 @@
   try {const raw=localStorage.getItem(SAVE);if(raw)s=E.restore(raw);motion=localStorage.getItem(PREF)==='1'||motion;} catch {loadError='保存データを読み込めませんでした。新しい工場を表示しています。';}
   let tool=null, category='transport', dir=0, selected=null, cursor={x:9,y:5}, scale=48, ox=0,oy=0, cw=0,ch=0, lastStage=-1, toastTimer, lastTime=0, accumulator=0, zoomed=false;
   let panel=null, saveIssue='';
+  let relocation=null;
   const panels={build:'buildPanel',inspect:'inspector',order:'orderPanel',menu:'menuPanel'};
   const panelButtons={build:'buildToggle',order:'orderToggle',menu:'menuToggle'};
   const arrows=['→','↓','←','↑'];
@@ -32,8 +33,8 @@
     $('buildToggle').classList.toggle('active',next==='build'||!!(tool&&tool!=='erase'));
   }
   function closePanel(){const previous=panel;setPanel(null);if(previous==='inspect'){selected=null;canvas.focus();}else if(panelButtons[previous])$(panelButtons[previous]).focus();}
-  function setRunning(value){s.running=value;accumulator=0;lastTime=performance.now();persist();refresh();}
-  function toolName(){return tool==='erase'?'撤去':!tool?'移動・設備の確認':Object.values(catalog).flat().find(t=>t[0]===tool.type&&t[1]===tool.option)?.[3]||names[tool.type];}
+  function setRunning(value){if(value&&relocation)return; s.running=value;accumulator=0;lastTime=performance.now();persist();refresh();}
+  function toolName(){return tool==='erase'?'撤去':!tool?'画面移動・設備の確認':Object.values(catalog).flat().find(t=>t[0]===tool.type&&t[1]===tool.option)?.[3]||names[tool.type];}
   function palette(){
     $('palette').replaceChildren();
     for(const [type,option,icon,name] of catalog[category]){
@@ -45,7 +46,7 @@
     }
     $('hand').classList.toggle('active',!tool);$('erase').classList.toggle('active',tool==='erase');
     $('buildToggle').classList.toggle('active',panel==='build'||!!(tool&&tool!=='erase'));
-    $('toolHint').textContent=tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「移動」に切り替え。':tool?.type==='cat'?'猫は矢印の反対側から取り、矢印へ渡します。配置後に変更できます。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
+    $('toolHint').textContent=tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「画面移動」に切り替え。':tool?.type==='cat'?'猫は矢印の反対側から取り、矢印へ渡します。配置後に変更できます。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
   }
   function refresh(){
     $('coins').textContent=s.coins.toLocaleString()+' 円';$('sold').innerHTML=Object.values(s.sold).reduce((a,b)=>a+b,0).toLocaleString()+' <em>皿</em>';
@@ -56,8 +57,59 @@
     $('unlock').textContent=g?'解放：'+g.unlock+' ／ 報酬 '+g.reward+'円':'全設備が使えます。生産ラインを好きなだけ改良しよう。';
     if(lastStage!==s.stage){lastStage=s.stage;palette();}
     $('guide').textContent=tool==='erase'?'撤去で建設費を全額返却。内部の食材は廃棄されます。':tool?toolName()+'を配置 '+arrows[dir]+' ／ 空きマスをタップ':!E.at(s,9,5)&&s.stage===0?'「建設」からレーンを選び、点線のマスをつなごう。':'ドラッグで盤面を移動。設備をタップすると詳細を開きます。';
-    inspect();
+    inspect();refreshMove();
   }
+  function beginMove(cells=null) {
+    relocation={cells, start:null, end:null, dx:0, dy:0, placed:false, pan:false};
+    tool=null; selected=null; setPanel(null); setRunning(false); palette(); refresh(); canvas.focus();
+  }
+  function cancelMove() {
+    relocation=null; refresh(); canvas.focus();
+  }
+  function chooseRange(a,b) {
+    const cells=E.selectRect(s,a,b);
+    if (!cells.length) {notify('選択範囲に設備がありません');relocation.start=null;relocation.end=null;refresh();return;}
+    relocation.cells=cells;relocation.start=null;relocation.end=null;refresh();
+  }
+  function moveAction(c) {
+    const m=relocation;
+    if(m.pan)return;
+    if(!m.cells) {
+      if(!m.start){m.start=c;m.end=c;refresh();}
+      else chooseRange(m.start,c);
+    } else {
+      m.dx=c.x-Math.min(...m.cells.map(p=>p.x));
+      m.dy=c.y-Math.min(...m.cells.map(p=>p.y));
+      m.placed=true;refresh();
+    }
+  }
+  function refreshMove() {
+    const m=relocation;
+    $('normalTools').hidden=!!m; $('moveControls').hidden=!m;
+    $('play').disabled=!!m; $('buildToggle').disabled=!!m;
+    if(!m)return;
+    const error=m.cells?E.validateMove(s,m.cells,m.dx,m.dy):'';
+    $('moveConfirm').disabled=!m.cells||!m.placed||!!error||(!m.dx&&!m.dy);
+    $('movePan').classList.toggle('active',m.pan);
+    $('movePan').textContent=m.pan?'移設に戻る':'画面移動';
+    $('modeLabel').textContent=m.cells?m.cells.length+'設備を移設（無料）':'移設する範囲を選択';
+    $('moveStatus').textContent=m.pan?'ドラッグで画面移動。終わったら「移設に戻る」':!m.cells
+      ?(m.start?'反対側の角をタップ':'範囲をドラッグ、または対角の2点をタップ')
+      :!m.placed?'移動先の左上のマスをタップ':error||(!m.dx&&!m.dy?'移動先を変更してください':'配置できます。「確定」で移設');
+    $('guide').textContent='移設中は停止・中身は保持。確定前の配置は保存されません。';
+  }
+  $('rangeSelect').onclick=()=>beginMove();
+  $('moveSelected').onclick=()=>{if(selected)beginMove([{...selected}]);};
+  $('moveCancel').onclick=cancelMove;
+  $('movePan').onclick=()=>{relocation.pan=!relocation.pan;refresh();};
+  $('moveConfirm').onclick=()=>{
+    const m=relocation;
+    if(!m?.cells||!m.placed||(!m.dx&&!m.dy))return;
+    const error=E.moveEntities(s,m.cells,m.dx,m.dy);
+    if(error){notify(error);refresh();return;}
+    const count=m.cells.length;relocation=null;persist();refresh();canvas.focus();
+    notify(count+'設備を移設しました。「稼働する」で再開できます');
+  };
   function inspect(){
     const e=selected&&E.at(s,selected.x,selected.y);$('editControls').hidden=!e;
     if(!e){$('detail').innerHTML=tool&&tool!=='erase'?'<strong>'+toolName()+'を配置 '+arrows[dir]+'</strong><br><small>空きマスをタップ。向きボタンで回転できます。</small>':!E.at(s,9,5)&&s.stage===0?'まずは点線のマスにレーンを1本置こう。<br><small>「レーン」を選ぶ → 光るマスをタップ → 稼働する</small>':'設備をタップすると、材料と詰まりの原因を確認できます。';return;}
@@ -86,7 +138,7 @@
   for(const id of ['helpDialog','resetDialog'])$(id).addEventListener('close',()=>$('menuToggle').focus());
   $('reduceMotion').checked=motion;$('reduceMotion').onchange=()=>{motion=$('reduceMotion').checked;try{localStorage.setItem(PREF,motion?'1':'0');}catch{}};
   $('newGame').onclick=()=>{setRunning(false);setPanel(null);$('resetDialog').showModal();};$('cancelReset').onclick=()=>$('resetDialog').close();
-  $('confirmReset').onclick=()=>{s=E.create();loadError='';selected=null;tool=null;lastStage=-1;setPanel(null);defaultView();persist();palette();refresh();$('resetDialog').close();notify('新しい工場を準備しました');};
+  $('confirmReset').onclick=()=>{relocation=null;s=E.create();loadError='';selected=null;tool=null;lastStage=-1;setPanel(null);defaultView();persist();palette();refresh();$('resetDialog').close();notify('新しい工場を準備しました');};
   function mapArea(includePanel=false){
     const base=canvas.getBoundingClientRect(),hud=$('hud').getBoundingClientRect(),dock=$('dock').getBoundingClientRect();
     let left=12,top=hud.bottom-base.top+12,right=cw-72,bottom=dock.top-base.top-48;
@@ -109,7 +161,7 @@
   function onBoard(ev){return document.elementFromPoint(ev.clientX,ev.clientY)===canvas;}
   function exposed(c){const r=canvas.getBoundingClientRect();return document.elementFromPoint(r.left+ox+(c.x+.5)*scale,r.top+oy+(c.y+.5)*scale)===canvas;}
   function act(c){
-    cursor=c;if(!tool){selected=E.at(s,c.x,c.y)?c:null;setPanel(selected?'inspect':null);refresh();if(selected)centerOn(c.x,c.y,true);return false;}
+    cursor=c;if(relocation){moveAction(c);return false;}if(!tool){selected=E.at(s,c.x,c.y)?c:null;setPanel(selected?'inspect':null);refresh();if(selected)centerOn(c.x,c.y,true);return false;}
     if(tool==='erase'){const error=E.remove(s,c.x,c.y);if(error)notify(error);else{selected=null;persist();refresh();}return !error;}
     const error=E.place(s,c.x,c.y,tool.type,tool.option,dir);if(error){selected=E.at(s,c.x,c.y)?c:null;notify(error);}else{selected=c;persist();}refresh();return !error;
   }
@@ -119,6 +171,7 @@
     if(!pointers.has(ev.pointerId))return;if(!onBoard(ev)){if(gesture?.built)persist();gesture=null;pointers.delete(ev.pointerId);pinch=0;return;}const p=point(ev);pointers.set(ev.pointerId,p);
     if(pointers.size===2){const d=distance(),a=[...pointers.values()];if(pinch)zoom(d/pinch,(a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2);pinch=d;return;}
     if(!gesture)return;const g=gesture;if(Math.hypot(p.x-g.start.x,p.y-g.start.y)>6)g.moved=true;
+    if(g.moved&&relocation&&!relocation.pan){if(!relocation.cells){relocation.end=cell(p);}g.last=p;return;}
     if(g.moved&&!tool){ox+=p.x-g.last.x;oy+=p.y-g.last.y;clampView();}
     if(g.moved&&tool?.type==='belt'){
       if(!g.built){if(act(g.cell))g.built={...g.cell};else{gesture=null;return;}}
@@ -133,10 +186,15 @@
       }refresh();
     }g.last=p;
   });
-  function end(ev){pointers.delete(ev.pointerId);if(gesture&&!gesture.moved&&onBoard(ev))act(cell(point(ev)));if(gesture?.built)persist();gesture=null;pinch=0;}
+  function end(ev){
+    if(relocation&&!relocation.pan&&gesture?.moved&&onBoard(ev)) {
+      if(!relocation.cells)chooseRange(relocation.start||gesture.cell,cell(point(ev)));
+      else moveAction(cell(point(ev)));
+    }
+    pointers.delete(ev.pointerId);if(gesture&&!gesture.moved&&onBoard(ev))act(cell(point(ev)));if(gesture?.built)persist();gesture=null;pinch=0;}
   canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',()=>{pointers.clear();gesture=null;pinch=0;persist();});
   canvas.addEventListener('wheel',ev=>{ev.preventDefault();const p=point(ev);zoom(ev.deltaY<0?1.1:1/1.1,p.x,p.y);},{passive:false});
-  document.addEventListener('keydown',ev=>{if(document.querySelector('dialog[open]')||['SELECT','INPUT'].includes(document.activeElement?.tagName))return;if(ev.key==='Escape'){if(panel)closePanel();else $('hand').click();return;}if(ev.key.toLowerCase()==='r')$('rotate').click();if(document.activeElement!==canvas)return;const dirs={ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowUp:[0,-1]};if(dirs[ev.key]){ev.preventDefault();cursor.x=Math.max(0,Math.min(s.width-1,cursor.x+dirs[ev.key][0]));cursor.y=Math.max(0,Math.min(s.height-1,cursor.y+dirs[ev.key][1]));centerOn(cursor.x,cursor.y,true);}if(ev.key==='Enter'){ev.preventDefault();if(!exposed(cursor)){notify('パネルを閉じるか、盤面を移動してから操作してください');return;}act(cursor);}});
+  document.addEventListener('keydown',ev=>{if(document.querySelector('dialog[open]')||['SELECT','INPUT'].includes(document.activeElement?.tagName))return;if(ev.key==='Escape'){if(relocation){cancelMove();return;}if(panel)closePanel();else $('hand').click();return;}if(ev.key.toLowerCase()==='r')$('rotate').click();if(document.activeElement!==canvas)return;const dirs={ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowUp:[0,-1]};if(dirs[ev.key]){ev.preventDefault();cursor.x=Math.max(0,Math.min(s.width-1,cursor.x+dirs[ev.key][0]));cursor.y=Math.max(0,Math.min(s.height-1,cursor.y+dirs[ev.key][1]));centerOn(cursor.x,cursor.y,true);}if(ev.key==='Enter'){ev.preventDefault();if(!exposed(cursor)){notify('パネルを閉じるか、盤面を移動してから操作してください');return;}act(cursor);}});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)setRunning(false);});window.addEventListener('pagehide',()=>{s.running=false;persist();});setInterval(persist,5000);
   function round(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
   function label(text,x,y,size,color='#314739',align='center'){ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.font='bold '+size+'px "Yu Gothic UI",sans-serif';ctx.fillText(text,x,y);}
@@ -160,13 +218,7 @@
     else if(scale>32)label(E.ITEMS[type][1],0,-z*.07,z*.18,type==='nori'?'#e7f1df':'#536648');ctx.restore();
   }
   function arrow(d,x,y,z,color){ctx.save();ctx.translate(x,y);ctx.rotate(d*Math.PI/2);ctx.strokeStyle=color;ctx.lineWidth=Math.max(1,z*.055);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-z*.14,0);ctx.lineTo(z*.14,0);ctx.lineTo(z*.03,-z*.1);ctx.moveTo(z*.14,0);ctx.lineTo(z*.03,z*.1);ctx.stroke();ctx.restore();}
-  function draw(t){
-    ctx.clearRect(0,0,cw,ch);ctx.fillStyle='#dce4cf';ctx.fillRect(0,0,cw,ch);
-    // Soft floor tiles, timber rails, and individually drawn cats keep the scene readable at any zoom.
-    for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
-      const px=ox+x*scale,py=oy+y*scale,z=scale;if(px+z<0||py+z<0||px>cw||py>ch)continue;
-      round(px+1,py+1,z-2,z-2,2,(x+y)%2?'#e8ebda':'#e3e7d5');const e=E.at(s,x,y);
-      if(!e){if(x===9&&y===5&&s.stage===0){ctx.strokeStyle='#d48842';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.strokeRect(px+3,py+3,z-6,z-6);ctx.setLineDash([]);arrow(0,px+z/2,py+z/2,z,'#bc8858');}continue;}
+  function drawEquipment(e,px,py,z,t){
       ctx.save();ctx.translate(px,py);
       if(['belt','splitter','bridge'].includes(e.type)){
         const rail=(d,raised=false)=>{ctx.save();ctx.translate(z/2,z/2);ctx.rotate(d*Math.PI/2);round(-z/2,-z*.34,z,z*.68,3,raised?'#8c7152':'#ad875a');round(-z/2,-z*.25,z,z*.5,2,'#d4b17b');ctx.strokeStyle='#b08a59';ctx.lineWidth=1;const shift=s.running&&!motion?(t%500)/500*z*.25:0;for(let a=-z/2;a<z/2;a+=z*.25){ctx.beginPath();ctx.moveTo(a+shift,-z*.23);ctx.lineTo(a+shift,z*.23);ctx.stroke();}ctx.restore();};
@@ -197,7 +249,40 @@
       }
       if(e.out.length) {round(z*.69,z*.02,z*.28,z*.23,z*.07,'#fff9e9');label(e.out.length,z*.83,z*.14,z*.17);}
       ctx.restore();
+  }
+  function draw(t){
+    ctx.clearRect(0,0,cw,ch);ctx.fillStyle='#dce4cf';ctx.fillRect(0,0,cw,ch);
+    // Soft floor tiles, timber rails, and individually drawn cats keep the scene readable at any zoom.
+    for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
+      const px=ox+x*scale,py=oy+y*scale,z=scale;if(px+z<0||py+z<0||px>cw||py>ch)continue;
+      round(px+1,py+1,z-2,z-2,2,(x+y)%2?'#e8ebda':'#e3e7d5');const e=E.at(s,x,y);
+      if(!e){if(x===9&&y===5&&s.stage===0){ctx.strokeStyle='#d48842';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.strokeRect(px+3,py+3,z-6,z-6);ctx.setLineDash([]);arrow(0,px+z/2,py+z/2,z,'#bc8858');}continue;}
+      drawEquipment(e,px,py,z,t);
       if(selected?.x===x&&selected?.y===y){ctx.strokeStyle='#eb9c47';ctx.lineWidth=3;ctx.strokeRect(px+2,py+2,z-4,z-4);}
+    }
+    if(relocation) {
+      const m=relocation;
+      const outline=(c,color)=>{ctx.strokeStyle=color;ctx.lineWidth=3;ctx.strokeRect(ox+c.x*scale+2,oy+c.y*scale+2,scale-4,scale-4);};
+      if(m.cells){
+        for(const c of m.cells)outline(c,'#477d96');
+        if(m.placed){
+          const color=E.validateMove(s,m.cells,m.dx,m.dy)?'#bd3636':'#23774c';
+          for(const c of m.cells){
+            const dest={x:c.x+m.dx,y:c.y+m.dy};
+            ctx.save();ctx.globalAlpha=.65;
+            drawEquipment(E.at(s,c.x,c.y),ox+dest.x*scale,oy+dest.y*scale,scale,t);
+            ctx.restore();outline(dest,color);
+          }
+        }
+      } else {
+        const start=m.start||gesture?.cell,end=m.end||start;
+        if(start&&end){
+          ctx.fillStyle='#477d9633';ctx.strokeStyle='#477d96';ctx.lineWidth=2;
+          const x=ox+Math.min(start.x,end.x)*scale,y=oy+Math.min(start.y,end.y)*scale;
+          const w=(Math.abs(start.x-end.x)+1)*scale,h=(Math.abs(start.y-end.y)+1)*scale;
+          ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);
+        }
+      }
     }
     if(document.activeElement===canvas){ctx.strokeStyle='#477d96';ctx.lineWidth=2;ctx.strokeRect(ox+cursor.x*scale+2,oy+cursor.y*scale+2,scale-4,scale-4);}
     if(!E.at(s,9,5)&&s.stage===0&&scale>28)label('ここをつなごう',ox+9.5*scale,oy+4.6*scale,Math.max(10,scale*.18),'#986238');

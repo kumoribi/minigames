@@ -98,4 +98,34 @@ test('停止と保存復元は食事の残り時間を維持し、旧保存の�
   E.at(restored,0,0).packet={type:'maki',dir:0};restored.running=true;tick(restored,6);
   assert.equal(restored.sold.maki,0);tick(restored,1);assert.equal(restored.sold.maki,1);
 });
+test('範囲選択は逆向きの矩形にも対応し、空きマスを含めない',()=>{
+  const s=empty();add(s,1,1,'belt');add(s,2,2,'cat');add(s,4,4,'counter');
+  assert.deepEqual(E.selectRect(s,{x:3,y:3},{x:0,y:0}),[{x:1,y:1},{x:2,y:2}]);
+});
+test('一括移設は選択内の重なりを許可し、全状態と費用を保持',()=>{
+  const s=empty(), belt=add(s,1,1,'belt'), machine=add(s,2,1,'machine','grip'), seat=add(s,3,1,'counter');
+  belt.packet={type:'salmonSushi',dir:2};machine.inv={rice:2};machine.activeRecipe='tunaGrip';machine.progress=2;seat.mealTicks=7;
+  const cells=E.selectRect(s,{x:1,y:1},{x:3,y:1}),before=JSON.stringify([belt,machine,seat]),coins=s.coins;
+  assert.equal(E.validateMove(s,cells,1,0),'');assert.equal(E.at(s,1,1),belt);
+  assert.equal(E.moveEntities(s,cells,1,0),'');assert.equal(E.at(s,1,1),undefined);
+  assert.equal(E.at(s,2,1),belt);assert.equal(E.at(s,3,1),machine);assert.equal(E.at(s,4,1),seat);
+  assert.equal(JSON.stringify([belt,machine,seat]),before);assert.equal(s.coins,coins);
+  const restored=E.restore(E.save(s));assert.deepEqual(restored.cells,s.cells);
+});
+test('移設拒否は全設備を元のまま保持する',()=>{
+  const s=empty();add(s,0,0,'belt');add(s,1,0,'cat');add(s,3,0,'counter');
+  const cells=[{x:0,y:0},{x:1,y:0}],before=E.save(s);
+  for(const [list,dx,dy] of [[cells,2,0],[cells,-1,0],[cells,0,99],[cells,NaN,0],[[],1,0],[[cells[0],cells[0]],1,0],[[{x:9,y:9}],1,0]]){
+    assert.ok(E.moveEntities(s,list,dx,dy));assert.equal(E.save(s),before);
+  }
+  s.running=true;assert.ok(E.moveEntities(s,cells,0,1));assert.equal(E.save(s),before);
+});
+test('移設した生産ラインは元と同じ結果で再開する',()=>{
+  const original=E.create();add(original,9,5,'belt');original.running=true;tick(original,18);original.running=false;
+  const moved=E.restore(E.save(original));
+  assert.equal(E.moveEntities(moved,E.selectRect(moved,{x:0,y:0},{x:13,y:9}),1,1),'');
+  original.running=true;moved.running=true;tick(original,200);tick(moved,200);
+  assert.deepEqual(moved.sold,original.sold);assert.equal(moved.coins,original.coins);
+  for(const [k,e] of Object.entries(original.cells)){const [x,y]=k.split(',').map(Number);assert.deepEqual(E.at(moved,x+1,y+1),e);}
+});
 console.log(passed+' tests passed');

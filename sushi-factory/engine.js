@@ -240,6 +240,39 @@
     }
     v.version=2;v.running=false;v.events=[];return v;
   }
-  const api={STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
+  function selectRect(s, a, b) {
+    return Object.keys(s.cells).map(k => {
+      const [x,y] = k.split(',').map(Number); return {x,y};
+    }).filter(c => c.x >= Math.min(a.x,b.x) && c.x <= Math.max(a.x,b.x)
+      && c.y >= Math.min(a.y,b.y) && c.y <= Math.max(a.y,b.y));
+  }
+  function validateMove(s, cells, dx, dy) {
+    if (s.running) return '移設する前に工場を停止してください';
+    if (!Array.isArray(cells) || !cells.length) return '設備を選択してください';
+    if (!Number.isInteger(dx) || !Number.isInteger(dy)) return '移動先が不正です';
+    const sources = new Set();
+    for (const c of cells) {
+      if (!c || !Number.isInteger(c.x) || !Number.isInteger(c.y) || !at(s,c.x,c.y)) return '選択した設備がありません';
+      const k = key(c.x,c.y);
+      if (sources.has(k)) return '同じ設備が重複しています';
+      sources.add(k);
+    }
+    for (const c of cells) {
+      const x=c.x+dx, y=c.y+dy;
+      if (x<0 || y<0 || x>=s.width || y>=s.height) return '敷地の外には移設できません';
+      if (at(s,x,y) && !sources.has(key(x,y))) return '移動先に別の設備があります';
+    }
+    return '';
+  }
+  function moveEntities(s, cells, dx, dy) {
+    const error = validateMove(s,cells,dx,dy);
+    if (error) return error;
+    const next = {...s.cells};
+    for (const c of cells) delete next[key(c.x,c.y)];
+    for (const c of cells) next[key(c.x+dx,c.y+dy)] = at(s,c.x,c.y);
+    s.cells = next;
+    return '';
+  }
+  const api={selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
   if(typeof module!=='undefined') module.exports=api; else root.SushiEngine=api;
 })(typeof window!=='undefined'?window:globalThis);

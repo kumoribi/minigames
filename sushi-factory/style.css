@@ -45,3 +45,8 @@ dialog{color:var(--ink);background:var(--paper);border:1px solid var(--line);bor
 .hud{top:max(6px,env(safe-area-inset-top))}.topbar{padding:4px 8px;gap:10px}h1{font-size:14px}.order-summary{min-height:40px;margin-top:4px;padding:4px 10px}.zoom-controls{top:auto;bottom:max(8px,env(safe-area-inset-bottom));right:max(8px,env(safe-area-inset-right));transform:none;display:flex}.dock{left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));transform:none;width:330px}.map-status{display:none}.guide{left:8px;transform:none;max-width:calc(100% - 80px)}.floating-panel{max-height:calc(100% - var(--top-clear) - var(--bottom-clear) - 8px)}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Relocation controls stay in the existing viewport dock. */
+[hidden] { display:none !important; }
+#moveStatus { margin:4px 0 8px; max-width:440px; font-size:12px; line-height:1.5; }
+@media(max-width:760px){#normalTools button{font-size:11px;padding-inline:3px}#moveStatus{max-width:100%}}
