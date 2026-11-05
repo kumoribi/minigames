@@ -50,3 +50,7 @@ dialog{color:var(--ink);background:var(--paper);border:1px solid var(--line);bor
 [hidden] { display:none !important; }
 #moveStatus { margin:4px 0 8px; max-width:440px; font-size:12px; line-height:1.5; }
 @media(max-width:760px){#normalTools button{font-size:11px;padding-inline:3px}#moveStatus{max-width:100%}}
+
+#moveControls .dock-buttons button{min-width:0;flex:1;padding-inline:7px}
+#dock:has(#moveControls:not([hidden])){width:420px}
+@media(max-width:380px){#moveControls .dock-buttons button{font-size:11px;padding-inline:3px}}

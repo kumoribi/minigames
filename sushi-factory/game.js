@@ -60,7 +60,7 @@
     inspect();refreshMove();
   }
   function beginMove(cells=null) {
-    relocation={cells, start:null, end:null, dx:0, dy:0, placed:false, pan:false};
+    relocation={cells, start:null, end:null, dx:0, dy:0, turns:0, placed:false, pan:false};
     tool=null; selected=null; setPanel(null); setRunning(false); palette(); refresh(); canvas.focus();
   }
   function cancelMove() {
@@ -88,24 +88,30 @@
     $('normalTools').hidden=!!m; $('moveControls').hidden=!m;
     $('play').disabled=!!m; $('buildToggle').disabled=!!m;
     if(!m)return;
-    const error=m.cells?E.validateMove(s,m.cells,m.dx,m.dy):'';
-    $('moveConfirm').disabled=!m.cells||!m.placed||!!error||(!m.dx&&!m.dy);
+    $('moveRotate').disabled=!m.cells;
+    const error=m.cells?E.validateMove(s,m.cells,m.dx,m.dy,m.turns):'';
+    $('moveConfirm').disabled=!m.cells||!m.placed||!!error||(!m.dx&&!m.dy&&!m.turns);
     $('movePan').classList.toggle('active',m.pan);
     $('movePan').textContent=m.pan?'移設に戻る':'画面移動';
-    $('modeLabel').textContent=m.cells?m.cells.length+'設備を移設（無料）':'移設する範囲を選択';
+    $('modeLabel').textContent=m.cells?m.cells.length+'設備を移設・'+m.turns*90+'°（無料）':'移設する範囲を選択';
     $('moveStatus').textContent=m.pan?'ドラッグで画面移動。終わったら「移設に戻る」':!m.cells
       ?(m.start?'反対側の角をタップ':'範囲をドラッグ、または対角の2点をタップ')
-      :!m.placed?'移動先の左上のマスをタップ':error||(!m.dx&&!m.dy?'移動先を変更してください':'配置できます。「確定」で移設');
+      :!m.placed?'移動先の左上のマスをタップ':error||(!m.dx&&!m.dy&&!m.turns?'移動先を変更してください':'配置できます。「確定」で移設');
     $('guide').textContent='移設中は停止・中身は保持。確定前の配置は保存されません。';
   }
   $('rangeSelect').onclick=()=>beginMove();
   $('moveSelected').onclick=()=>{if(selected)beginMove([{...selected}]);};
   $('moveCancel').onclick=cancelMove;
   $('movePan').onclick=()=>{relocation.pan=!relocation.pan;refresh();};
+  $('moveRotate').onclick=()=>{
+    if(!relocation?.cells)return;
+    relocation.turns=(relocation.turns+1)%4;relocation.placed=true;
+    refresh();canvas.focus();
+  };
   $('moveConfirm').onclick=()=>{
     const m=relocation;
-    if(!m?.cells||!m.placed||(!m.dx&&!m.dy))return;
-    const error=E.moveEntities(s,m.cells,m.dx,m.dy);
+    if(!m?.cells||!m.placed||(!m.dx&&!m.dy&&!m.turns))return;
+    const error=E.moveEntities(s,m.cells,m.dx,m.dy,m.turns);
     if(error){notify(error);refresh();return;}
     const count=m.cells.length;relocation=null;persist();refresh();canvas.focus();
     notify(count+'設備を移設しました。「稼働する」で再開できます');
@@ -194,7 +200,7 @@
     pointers.delete(ev.pointerId);if(gesture&&!gesture.moved&&onBoard(ev))act(cell(point(ev)));if(gesture?.built)persist();gesture=null;pinch=0;}
   canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',()=>{pointers.clear();gesture=null;pinch=0;persist();});
   canvas.addEventListener('wheel',ev=>{ev.preventDefault();const p=point(ev);zoom(ev.deltaY<0?1.1:1/1.1,p.x,p.y);},{passive:false});
-  document.addEventListener('keydown',ev=>{if(document.querySelector('dialog[open]')||['SELECT','INPUT'].includes(document.activeElement?.tagName))return;if(ev.key==='Escape'){if(relocation){cancelMove();return;}if(panel)closePanel();else $('hand').click();return;}if(ev.key.toLowerCase()==='r')$('rotate').click();if(document.activeElement!==canvas)return;const dirs={ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowUp:[0,-1]};if(dirs[ev.key]){ev.preventDefault();cursor.x=Math.max(0,Math.min(s.width-1,cursor.x+dirs[ev.key][0]));cursor.y=Math.max(0,Math.min(s.height-1,cursor.y+dirs[ev.key][1]));centerOn(cursor.x,cursor.y,true);}if(ev.key==='Enter'){ev.preventDefault();if(!exposed(cursor)){notify('パネルを閉じるか、盤面を移動してから操作してください');return;}act(cursor);}});
+  document.addEventListener('keydown',ev=>{if(document.querySelector('dialog[open]')||['SELECT','INPUT'].includes(document.activeElement?.tagName))return;if(ev.key==='Escape'){if(relocation){cancelMove();return;}if(panel)closePanel();else $('hand').click();return;}if(ev.key.toLowerCase()==='r'&&!ev.repeat){ev.preventDefault();$(relocation?'moveRotate':'rotate').click();}if(document.activeElement!==canvas)return;const dirs={ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowUp:[0,-1]};if(dirs[ev.key]){ev.preventDefault();cursor.x=Math.max(0,Math.min(s.width-1,cursor.x+dirs[ev.key][0]));cursor.y=Math.max(0,Math.min(s.height-1,cursor.y+dirs[ev.key][1]));centerOn(cursor.x,cursor.y,true);}if(ev.key==='Enter'){ev.preventDefault();if(!exposed(cursor)){notify('パネルを閉じるか、盤面を移動してから操作してください');return;}act(cursor);}});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)setRunning(false);});window.addEventListener('pagehide',()=>{s.running=false;persist();});setInterval(persist,5000);
   function round(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
   function label(text,x,y,size,color='#314739',align='center'){ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.font='bold '+size+'px "Yu Gothic UI",sans-serif';ctx.fillText(text,x,y);}
@@ -222,7 +228,7 @@
       ctx.save();ctx.translate(px,py);
       if(['belt','splitter','bridge'].includes(e.type)){
         const rail=(d,raised=false)=>{ctx.save();ctx.translate(z/2,z/2);ctx.rotate(d*Math.PI/2);round(-z/2,-z*.34,z,z*.68,3,raised?'#8c7152':'#ad875a');round(-z/2,-z*.25,z,z*.5,2,'#d4b17b');ctx.strokeStyle='#b08a59';ctx.lineWidth=1;const shift=s.running&&!motion?(t%500)/500*z*.25:0;for(let a=-z/2;a<z/2;a+=z*.25){ctx.beginPath();ctx.moveTo(a+shift,-z*.23);ctx.lineTo(a+shift,z*.23);ctx.stroke();}ctx.restore();};
-        rail(e.dir);if(e.type==='bridge'){rail(1,true);label('橋',z*.8,z*.18,z*.19,'#fff8dd');}
+        rail(e.type==='bridge'?0:e.dir);if(e.type==='bridge'){rail(1,true);label('橋',z*.8,z*.18,z*.19,'#fff8dd');}
         arrow(e.dir,z*.5,z*.5,z*.7,'#926e43');if(e.type==='splitter'){arrow((e.dir+3)%4,z*.5,z*.5,z*.9,'#456d58');round(z*.1,z*.08,z*.16,z*.16,2,'#5e8669');}
         if(e.packet)food(e.packet.type,z*.5,z*.48,z*.8);if(e.h)food(e.h.type,z*.35,z*.48,z*.65);if(e.v)food(e.v.type,z*.62,z*.5,z*.65);
       }else if(e.type==='cat'){
@@ -266,11 +272,12 @@
       if(m.cells){
         for(const c of m.cells)outline(c,'#477d96');
         if(m.placed){
-          const color=E.validateMove(s,m.cells,m.dx,m.dy)?'#bd3636':'#23774c';
-          for(const c of m.cells){
-            const dest={x:c.x+m.dx,y:c.y+m.dy};
+          const color=E.validateMove(s,m.cells,m.dx,m.dy,m.turns)?'#bd3636':'#23774c';
+          const targets=E.moveTargets(m.cells,m.dx,m.dy,m.turns);
+          for(const [i,c] of m.cells.entries()){
+            const dest=targets[i];
             ctx.save();ctx.globalAlpha=.65;
-            drawEquipment(E.at(s,c.x,c.y),ox+dest.x*scale,oy+dest.y*scale,scale,t);
+            drawEquipment(E.rotatedEntity(E.at(s,c.x,c.y),m.turns),ox+dest.x*scale,oy+dest.y*scale,scale,t);
             ctx.restore();outline(dest,color);
           }
         }

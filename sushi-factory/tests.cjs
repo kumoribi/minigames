@@ -128,4 +128,41 @@ test('移設した生産ラインは元と同じ結果で再開する',()=>{
   assert.deepEqual(moved.sold,original.sold);assert.equal(moved.coins,original.coins);
   for(const [k,e] of Object.entries(original.cells)){const [x,y]=k.split(',').map(Number);assert.deepEqual(E.at(moved,x+1,y+1),e);}
 });
+test('非正方形の選択を90度ずつ回転し4回で全状態が戻る',()=>{
+  const s=empty(),cat=add(s,2,2,'cat'),bridge=add(s,4,3,'bridge'),machine=add(s,3,2,'machine','grip'),seat=add(s,2,3,'counter');
+  cat.dir=1;cat.input=2;cat.filter='tuna';
+  bridge.h={type:'tunaSushi',dir:2};bridge.v={type:'salmonSushi',dir:1};
+  machine.activeRecipe='tunaGrip';machine.progress=2;machine.inv={shari:1};seat.mealTicks=7;
+  const before=E.restore(E.save(s));
+  for(let turn=0;turn<4;turn++){
+    const cells=E.selectRect(s,{x:0,y:0},{x:10,y:10});
+    const unchanged=E.save(s);
+    E.moveTargets(cells,0,0,1);E.rotatedEntity(bridge,1);
+    assert.equal(E.save(s),unchanged);
+    assert.equal(E.moveEntities(s,cells,0,0,1),'');
+    if(!turn){
+      assert.equal(E.at(s,3,2).type,'cat');assert.equal(E.at(s,3,2).dir,2);assert.equal(E.at(s,3,2).input,3);
+      assert.deepEqual(E.at(s,2,4).h,{type:'salmonSushi',dir:2});
+      assert.deepEqual(E.at(s,2,4).v,{type:'tunaSushi',dir:3});
+      assert.deepEqual(E.restore(E.save(s)).cells,s.cells);
+    }
+  }
+  assert.deepEqual(s.cells,before.cells);assert.equal(s.coins,before.coins);
+});
+test('回転先の衝突と敷地外を全体拒否し、選択内の重なりは許可',()=>{
+  const s=empty();add(s,0,0,'belt');add(s,1,0,'belt');add(s,0,1,'counter');
+  const cells=[{x:0,y:0},{x:1,y:0}],before=E.save(s);
+  for(const [dx,dy,turns] of [[0,0,1],[0,s.height-1,1],[0,0,4],[0,0,1.5]]){
+    assert.ok(E.moveEntities(s,cells,dx,dy,turns));assert.equal(E.save(s),before);
+  }
+  assert.equal(E.moveEntities(s,cells,0,0,2),'');
+  assert.equal(E.at(s,0,0).dir,2);assert.equal(E.at(s,1,0).dir,2);
+});
+test('回転したレーンと立体交差が保持した皿を正しい方向へ運ぶ',()=>{
+  const s=empty();const bridge=add(s,2,2,'bridge');add(s,3,2,'belt');
+  bridge.h={type:'tunaSushi',dir:0};
+  const cells=[{x:2,y:2},{x:3,y:2}];assert.equal(E.moveEntities(s,cells,0,0,1),'');
+  s.running=true;tick(s,1);
+  assert.equal(E.at(s,2,2).v,null);assert.equal(E.at(s,2,3).packet.type,'tunaSushi');
+});
 console.log(passed+' tests passed');

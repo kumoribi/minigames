@@ -246,10 +246,31 @@
     }).filter(c => c.x >= Math.min(a.x,b.x) && c.x <= Math.max(a.x,b.x)
       && c.y >= Math.min(a.y,b.y) && c.y <= Math.max(a.y,b.y));
   }
-  function validateMove(s, cells, dx, dy) {
+  // Keep the selection's bounding-box top left fixed while rotating its contents.
+  function moveTargets(cells, dx, dy, turns=0) {
+    const left=Math.min(...cells.map(c=>c.x)), top=Math.min(...cells.map(c=>c.y));
+    const width=Math.max(...cells.map(c=>c.x))-left+1;
+    const height=Math.max(...cells.map(c=>c.y))-top+1;
+    return cells.map(c=>{
+      let x=c.x-left, y=c.y-top, w=width, h=height;
+      for(let i=0;i<turns;i++) { [x,y]=[h-1-y,x]; [w,h]=[h,w]; }
+      return {x:left+dx+x,y:top+dy+y};
+    });
+  }
+  function rotatedEntity(e, turns=0) {
+    if(!turns)return e;
+    const result={...e,dir:(e.dir+turns)%4,input:(e.input+turns)%4};
+    for(const slot of ['packet','h','v']) {
+      result[slot]=e[slot]?{...e[slot],dir:(e[slot].dir+turns)%4}:null;
+    }
+    if(turns%2) [result.h,result.v]=[result.v,result.h];
+    return result;
+  }
+  function validateMove(s, cells, dx, dy, turns=0) {
     if (s.running) return '移設する前に工場を停止してください';
     if (!Array.isArray(cells) || !cells.length) return '設備を選択してください';
     if (!Number.isInteger(dx) || !Number.isInteger(dy)) return '移動先が不正です';
+    if (!Number.isInteger(turns) || turns<0 || turns>3) return '回転角度が不正です';
     const sources = new Set();
     for (const c of cells) {
       if (!c || !Number.isInteger(c.x) || !Number.isInteger(c.y) || !at(s,c.x,c.y)) return '選択した設備がありません';
@@ -257,22 +278,22 @@
       if (sources.has(k)) return '同じ設備が重複しています';
       sources.add(k);
     }
-    for (const c of cells) {
-      const x=c.x+dx, y=c.y+dy;
+    for (const {x,y} of moveTargets(cells,dx,dy,turns)) {
       if (x<0 || y<0 || x>=s.width || y>=s.height) return '敷地の外には移設できません';
       if (at(s,x,y) && !sources.has(key(x,y))) return '移動先に別の設備があります';
     }
     return '';
   }
-  function moveEntities(s, cells, dx, dy) {
-    const error = validateMove(s,cells,dx,dy);
+  function moveEntities(s, cells, dx, dy, turns=0) {
+    const error = validateMove(s,cells,dx,dy,turns);
     if (error) return error;
     const next = {...s.cells};
     for (const c of cells) delete next[key(c.x,c.y)];
-    for (const c of cells) next[key(c.x+dx,c.y+dy)] = at(s,c.x,c.y);
+    const targets=moveTargets(cells,dx,dy,turns);
+    cells.forEach((c,i)=>{next[key(targets[i].x,targets[i].y)]=rotatedEntity(at(s,c.x,c.y),turns);});
     s.cells = next;
     return '';
   }
-  const api={selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
+  const api={moveTargets,rotatedEntity,selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
   if(typeof module!=='undefined') module.exports=api; else root.SushiEngine=api;
 })(typeof window!=='undefined'?window:globalThis);
