@@ -7,13 +7,13 @@
   try {const raw=localStorage.getItem(SAVE);if(raw)s=E.restore(raw);motion=localStorage.getItem(PREF)==='1'||motion;} catch {loadError='保存データを読み込めませんでした。新しい工場を表示しています。';}
   let tool=null, category='transport', dir=0, selected=null, cursor={x:9,y:5}, scale=48, ox=0,oy=0, cw=0,ch=0, lastStage=-1, toastTimer, lastTime=0, accumulator=0, zoomed=false;
   let panel=null, saveIssue='';
-  let relocation=null, intro=null;
+  let relocation=null, intro=null, tunnelAnchor=null;
   const panels={build:'buildPanel',inspect:'inspector',order:'orderPanel',menu:'menuPanel'};
   const panelButtons={build:'buildToggle',order:'orderToggle',menu:'menuToggle'};
   const arrows=['→','↓','←','↑'];
-  const names={belt:'寿司レーン',cat:'おてつだい猫',source:'入荷箱',counter:'客席',splitter:'分岐器',bridge:'立体交差'};
+  const names={belt:'寿司レーン',cat:'おてつだい猫',source:'入荷箱',counter:'客席',splitter:'分岐器',bridge:'立体交差',underground:'地下レーン'};
   const catalog={
-    transport:[['belt','','▰','寿司レーン'],['cat','','🐈','おてつだい猫'],['counter','','🍵','客席'],['splitter','','⑂','分岐器'],['bridge','','╬','立体交差']],
+    transport:[['belt','','▰','寿司レーン'],['cat','','🐈','おてつだい猫'],['counter','','🍵','客席'],['splitter','','⑂','分岐器'],['bridge','','╬','立体交差'],['underground','in','↘','地下入口'],['underground','out','↗','地下出口']],
     source:[['source','rice','🌾','米の入荷'],['source','tuna','🐟','まぐろの入荷'],['source','salmon','🐟','サーモンの入荷'],['source','cucumber','🥒','きゅうりの入荷'],['source','nori','▣','海苔の入荷']],
     machine:[['machine','cook','♨','炊飯釜'],['machine','prep','🔪','仕込み台'],['machine','grip','🍣','握り台'],['machine','makiRoll','🍥','巻き寿司台']]
   };
@@ -46,7 +46,7 @@
     }
     $('hand').classList.toggle('active',!tool);$('erase').classList.toggle('active',tool==='erase');
     $('buildToggle').classList.toggle('active',panel==='build'||!!(tool&&tool!=='erase'));
-    $('toolHint').textContent=tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「画面移動」に切り替え。':tool?.type==='cat'?'猫は食材の仕分け役。配置後に「仕分け」で材料を指定できます。':tool?.type==='machine'?'調理台は隣のレーンから材料を自動取得。矢印方向へ完成品を搬出します。':tool?.type==='source'?'入荷箱は矢印方向の隣のレーンへ食材を自動搬出します。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
+    $('toolHint').textContent=tool?.type==='underground'?'入口・出口は同じ矢印方向。間の最大4マスを地下で通ります。各20円。':tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「画面移動」に切り替え。':tool?.type==='cat'?'猫は食材の仕分け役。配置後に「仕分け」で材料を指定できます。':tool?.type==='machine'?'調理台は隣のレーンから材料を自動取得。矢印方向へ完成品を搬出します。':tool?.type==='source'?'入荷箱は矢印方向の隣のレーンへ食材を自動搬出します。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
   }
   function refresh(){
     $('coins').textContent=s.coins.toLocaleString()+' 円';$('sold').innerHTML=Object.values(s.sold).reduce((a,b)=>a+b,0).toLocaleString()+' <em>皿</em>';
@@ -65,7 +65,7 @@
       complete:s.stage===0?'最初の一皿を提供！次はまぐろ20皿。設備をタップすると待ち時間や材料を確認できます。':'次は猫で仕分け。「建設」→おてつだい猫を置き、設備の「仕分け」で材料を指定しよう。',
       custom:'自由に改良できます。設備をタップして材料待ち・出口満杯を確認しよう。'
     };
-    $('guide').textContent=tool==='erase'?'撤去で建設費を全額返却。内部の食材は廃棄されます。'
+    $('guide').textContent=tool?.type==='underground'?(tool.option==='in'?'地下入口を配置 '+arrows[dir]+' ／ 次に同じ向きの出口を設置':'地下出口を配置 '+arrows[dir]+' ／ 入口の前方1〜5マス、同じ向きに設置'):tool==='erase'?'撤去で建設費を全額返却。内部の食材は廃棄されます。'
       :intro==='connect'&&tool&&tool.type!=='belt'?toolName()+'を配置 ／ 最初の接続には「寿司レーン」を選びます。'
       :guide[intro] || (tool?toolName()+'を配置 '+arrows[dir]+' ／ 空きマスをタップ':'ドラッグで盤面を移動。設備をタップすると詳細を開きます。');
     inspect();refreshMove();
@@ -130,13 +130,18 @@
   function inspect(){
     const e=selected&&E.at(s,selected.x,selected.y);$('editControls').hidden=!e;
     if(!e){$('detail').innerHTML=tool&&tool!=='erase'?'<strong>'+toolName()+'を配置 '+arrows[dir]+'</strong><br><small>空きマスをタップ。向きボタンで回転できます。</small>':intro==='connect'?'まずは点線のマスにレーンを1本置こう。<br><small>「レーン」を選ぶ → 光るマスをタップ → 稼働する</small>':'設備をタップすると、材料と詰まりの原因を確認できます。';return;}
-    const name=e.type==='machine'?E.MACHINES[e.option].name:e.type==='source'?E.ITEMS[e.option][0]+'の入荷':names[e.type];
+    const name=e.type==='underground'?(e.option==='in'?'地下入口':'地下出口'):e.type==='machine'?E.MACHINES[e.option].name:e.type==='source'?E.ITEMS[e.option][0]+'の入荷':names[e.type];
     let extra='';if(e.type==='machine') extra=E.inputTypes(e.option,s.stage).map(i=>E.ITEMS[i][0]+' '+(e.inv[i]||0)+'/4').join(' ｜ ');
     if(e.type==='source'||e.type==='machine')extra+=(extra?' ｜ ':'')+'完成 '+e.out.length+'/4'+' ｜ 自動搬出 '+arrows[e.dir]+'（隣のレーンへ）';
     if(e.type==='machine')extra+=' ｜ 上下左右のレーンから材料を自動取得';
+    if(e.type==='underground'){
+      const partner=E.tunnelPartner(s,selected.x,selected.y);
+      extra=partner?'接続先 ('+(partner.x+1)+','+(partner.y+1)+') ／ 地下 '+(partner.distance-1)+'マス ／ 方向 '+arrows[e.dir]:'未接続：同じ向きの'+(e.option==='in'?'出口を前方':'入口を後方')+'1〜5マスに設置';
+    }
+    $('moveTunnel').hidden=e.type!=='underground'||!E.tunnelPartner(s,selected.x,selected.y);
     if(e.type==='cat')extra='取る側 '+arrows[e.input]+' → 渡す側 '+arrows[e.dir];
     $('detail').replaceChildren();const title=document.createElement('strong');title.textContent=name+' ('+(selected.x+1)+','+(selected.y+1)+')';const line=document.createElement('div');line.textContent=E.status(e);const small=document.createElement('small');small.textContent=extra;$('detail').append(title,line,small);
-    $('rotateSelected').hidden=!['belt','cat','splitter','source','machine'].includes(e.type);$('rotateInput').hidden=e.type!=='cat';$('filterLabel').hidden=!['cat','splitter'].includes(e.type);
+    $('rotateSelected').hidden=!['belt','cat','splitter','source','machine','underground'].includes(e.type);$('rotateInput').hidden=e.type!=='cat';$('filterLabel').hidden=!['cat','splitter'].includes(e.type);
     if(document.activeElement!==$('filter'))$('filter').value=e.filter;
   }
   $('filter').add(new Option('指定なし',''));for(const [k,v] of Object.entries(E.ITEMS))$('filter').add(new Option(v[0],k));
@@ -148,9 +153,10 @@
   document.querySelectorAll('[data-close-panel]').forEach(b=>b.onclick=closePanel);
   $('hand').onclick=()=>{tool=null;selected=null;setPanel(null);palette();refresh();};$('erase').onclick=()=>{tool='erase';selected=null;setPanel(null);palette();refresh();};
   $('rotate').onclick=()=>{dir=(dir+1)%4;refresh();};
-  $('rotateSelected').onclick=()=>{const e=E.at(s,selected.x,selected.y);e.dir=(e.dir+1)%4;if(e.type==='cat'&&e.input===e.dir)e.input=(e.input+1)%4;persist();refresh();};
+  $('moveTunnel').onclick=()=>{const partner=E.tunnelPartner(s,selected.x,selected.y);if(partner)beginMove([{...selected},{x:partner.x,y:partner.y}]);};
+  $('rotateSelected').onclick=()=>{const e=E.at(s,selected.x,selected.y);if(e.type==='underground'){const error=E.rotate(s,selected.x,selected.y);if(error)notify(error);persist();refresh();return;}e.dir=(e.dir+1)%4;if(e.type==='cat'&&e.input===e.dir)e.input=(e.input+1)%4;persist();refresh();};
   $('rotateInput').onclick=()=>{const e=E.at(s,selected.x,selected.y);e.input=(e.input+1)%4;if(e.input===e.dir)e.input=(e.input+1)%4;persist();refresh();};
-  $('deleteSelected').onclick=()=>{if(selected){E.remove(s,selected.x,selected.y);selected=null;setPanel(null);persist();refresh();canvas.focus();}};
+  $('deleteSelected').onclick=()=>{if(selected){const error=E.remove(s,selected.x,selected.y);if(error){notify(error);return;}selected=null;setPanel(null);persist();refresh();canvas.focus();}};
   document.querySelectorAll('[data-category]').forEach(b=>b.onclick=()=>{category=b.dataset.category;document.querySelectorAll('[data-category]').forEach(x=>x.classList.toggle('active',x===b));palette();});
   $('help').onclick=()=>{setRunning(false);setPanel(null);$('helpDialog').showModal();};$('helpDone').onclick=()=>$('helpDialog').close();
   for(const id of ['helpDialog','resetDialog'])$(id).addEventListener('close',()=>$('menuToggle').focus());
@@ -181,7 +187,7 @@
   function act(c){
     cursor=c;if(relocation){moveAction(c);return false;}if(!tool){selected=E.at(s,c.x,c.y)?c:null;setPanel(selected?'inspect':null);refresh();if(selected)centerOn(c.x,c.y,true);return false;}
     if(tool==='erase'){const error=E.remove(s,c.x,c.y);if(error)notify(error);else{selected=null;persist();refresh();}return !error;}
-    const error=E.place(s,c.x,c.y,tool.type,tool.option,dir);if(error){selected=E.at(s,c.x,c.y)?c:null;notify(error);}else{selected=c;persist();}refresh();return !error;
+    const error=E.place(s,c.x,c.y,tool.type,tool.option,dir);if(error){selected=E.at(s,c.x,c.y)?c:null;notify(error);}else{selected=c;if(tool.type==='underground'){if(tool.option==='in'){tunnelAnchor={...c};tool={type:'underground',option:'out'};notify('次に出口を同じ矢印方向で、前方1〜5マスに設置します');}else{tunnelAnchor=null;const partner=E.tunnelPartner(s,c.x,c.y);notify(partner?'地下レーンを接続しました（地下'+(partner.distance-1)+'マス）':'未接続です。入口を同じ矢印方向で後方1〜5マスに設置してください');}palette();}persist();}refresh();return !error;
   }
   canvas.addEventListener('pointerdown',ev=>{if(ev.button!==0||!onBoard(ev))return;canvas.setPointerCapture(ev.pointerId);const p=point(ev);pointers.set(ev.pointerId,p);if(pointers.size===2){pinch=distance();gesture=null;return;}gesture={start:p,last:p,moved:false,cell:cell(p),built:null};});
   function distance(){const a=[...pointers.values()];return Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}
@@ -236,13 +242,31 @@
     else if(scale>32)label(E.ITEMS[type][1],0,-z*.07,z*.18,type==='nori'?'#e7f1df':'#536648');ctx.restore();
   }
   function arrow(d,x,y,z,color){ctx.save();ctx.translate(x,y);ctx.rotate(d*Math.PI/2);ctx.strokeStyle=color;ctx.lineWidth=Math.max(1,z*.055);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-z*.14,0);ctx.lineTo(z*.14,0);ctx.lineTo(z*.03,-z*.1);ctx.moveTo(z*.14,0);ctx.lineTo(z*.03,z*.1);ctx.stroke();ctx.restore();}
-  function drawEquipment(e,px,py,z,t){
+  function drawEquipment(e,px,py,z,t,inputs=null){
       ctx.save();ctx.translate(px,py);
       if(['belt','splitter','bridge'].includes(e.type)){
         const rail=(d,raised=false)=>{ctx.save();ctx.translate(z/2,z/2);ctx.rotate(d*Math.PI/2);round(-z/2,-z*.34,z,z*.68,3,raised?'#8c7152':'#ad875a');round(-z/2,-z*.25,z,z*.5,2,'#d4b17b');ctx.strokeStyle='#b08a59';ctx.lineWidth=1;const shift=s.running&&!motion?(t%500)/500*z*.25:0;for(let a=-z/2;a<z/2;a+=z*.25){ctx.beginPath();ctx.moveTo(a+shift,-z*.23);ctx.lineTo(a+shift,z*.23);ctx.stroke();}ctx.restore();};
-        rail(e.type==='bridge'?0:e.dir);if(e.type==='bridge'){rail(1,true);label('橋',z*.8,z*.18,z*.19,'#fff8dd');}
+        if(e.type==='belt'&&inputs?.some(side=>side!==(e.dir+2)%4)){
+          const [dx,dy]=E.DIR[e.dir];
+          for(const side of inputs){
+            const [ix,iy]=E.DIR[side];
+            for(const [width,color] of [[.68,'#ad875a'],[.5,'#d4b17b']]){
+              ctx.strokeStyle=color;ctx.lineWidth=z*width;ctx.lineCap='butt';ctx.beginPath();
+              ctx.moveTo(z*(.5+ix*.5),z*(.5+iy*.5));
+              ctx.quadraticCurveTo(z*.5,z*.5,z*(.5+dx*.5),z*(.5+dy*.5));ctx.stroke();
+            }
+          }
+        }else rail(e.type==='bridge'?0:e.dir);if(e.type==='bridge'){rail(1,true);label('橋',z*.8,z*.18,z*.19,'#fff8dd');}
         arrow(e.dir,z*.5,z*.5,z*.7,'#926e43');if(e.type==='splitter'){arrow((e.dir+3)%4,z*.5,z*.5,z*.9,'#456d58');round(z*.1,z*.08,z*.16,z*.16,2,'#5e8669');}
         if(e.packet)food(e.packet.type,z*.5,z*.48,z*.8);if(e.h)food(e.h.type,z*.35,z*.48,z*.65);if(e.v)food(e.v.type,z*.62,z*.5,z*.65);
+      }else if(e.type==='underground'){
+        round(z*.03,z*.12,z*.94,z*.76,z*.12,'#567c76');
+        round(z*.12,z*.23,z*.76,z*.5,z*.09,'#203f3c');
+        arrow(e.dir,z*.5,z*.47,z*.95,'#f3df9f');
+        label(e.option==='in'?'入口':'出口',z*.5,z*.84,z*.18,'#fff8dc');
+        if(e.packet)food(e.packet.type,z*.5,z*.45,z*.62);
+        const count=e.tunnel?.filter(Boolean).length;
+        if(count)label('地下'+count,z*.5,z*.14,z*.16,'#fff8dc');
       }else if(e.type==='cat'){
         round(z*.08,z*.1,z*.84,z*.8,z*.16,'#efe4c9');const [ix,iy]=E.DIR[e.input];round(z*(.46+ix*.37),z*(.46+iy*.37),z*.08,z*.08,z*.02,'#508f9c');cat(z*.5,z*.46,z*.82,e.progress>0,t);const [dx,dy]=E.DIR[e.dir];arrow(e.dir,z*(.5+dx*.35),z*(.5+dy*.35),z*.5,'#4a755b');
       }else if(e.type==='source'){
@@ -279,7 +303,8 @@
       const px=ox+x*scale,py=oy+y*scale,z=scale;if(px+z<0||py+z<0||px>cw||py>ch)continue;
       round(px+1,py+1,z-2,z-2,2,(x+y)%2?'#e8ebda':'#e3e7d5');const e=E.at(s,x,y);
       if(!e){if(x===9&&y===5&&intro==='connect'){ctx.strokeStyle='#d48842';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.strokeRect(px+3,py+3,z-6,z-6);ctx.setLineDash([]);arrow(0,px+z/2,py+z/2,z,'#bc8858');}continue;}
-      drawEquipment(e,px,py,z,t);
+      drawEquipment(e,px,py,z,t,E.beltInputs(s,x,y));
+      if(e.type==='underground')round(px+z*.8,py+z*.04,z*.12,z*.12,z*.06,E.tunnelPartner(s,x,y)?'#7cce9b':'#eb9460');
       if(selected?.x===x&&selected?.y===y){ctx.strokeStyle='#eb9c47';ctx.lineWidth=3;ctx.strokeRect(px+2,py+2,z-4,z-4);}
     }
     if(relocation) {
@@ -290,10 +315,13 @@
         if(m.placed){
           const color=E.validateMove(s,m.cells,m.dx,m.dy,m.turns)?'#bd3636':'#23774c';
           const targets=E.moveTargets(m.cells,m.dx,m.dy,m.turns);
+          const preview={...s,cells:{...s.cells}};
+          for(const c of m.cells)delete preview.cells[E.key(c.x,c.y)];
+          m.cells.forEach((c,i)=>preview.cells[E.key(targets[i].x,targets[i].y)]=E.rotatedEntity(E.at(s,c.x,c.y),m.turns));
           for(const [i,c] of m.cells.entries()){
             const dest=targets[i];
             ctx.save();ctx.globalAlpha=.65;
-            drawEquipment(E.rotatedEntity(E.at(s,c.x,c.y),m.turns),ox+dest.x*scale,oy+dest.y*scale,scale,t);
+            drawEquipment(E.rotatedEntity(E.at(s,c.x,c.y),m.turns),ox+dest.x*scale,oy+dest.y*scale,scale,t,E.beltInputs(preview,dest.x,dest.y));
             ctx.restore();outline(dest,color);
           }
         }
@@ -305,6 +333,28 @@
           const w=(Math.abs(start.x-end.x)+1)*scale,h=(Math.abs(start.y-end.y)+1)*scale;
           ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);
         }
+      }
+    }
+    if(!relocation&&selected&&E.at(s,selected.x,selected.y)?.type==='underground'){
+      const partner=E.tunnelPartner(s,selected.x,selected.y);
+      if(partner){
+        ctx.strokeStyle='#267e91';ctx.lineWidth=3;ctx.setLineDash([6,5]);ctx.beginPath();
+        ctx.moveTo(ox+(selected.x+.5)*scale,oy+(selected.y+.5)*scale);
+        ctx.lineTo(ox+(partner.x+.5)*scale,oy+(partner.y+.5)*scale);ctx.stroke();ctx.setLineDash([]);
+        ctx.strokeRect(ox+partner.x*scale+2,oy+partner.y*scale+2,scale-4,scale-4);
+      }
+    }
+    if(tool?.type==='underground'&&tool.option==='out'&&tunnelAnchor){
+      const entry=E.at(s,tunnelAnchor.x,tunnelAnchor.y);
+      if(entry?.type==='underground'&&entry.option==='in'&&entry.dir===dir){
+        const [dx,dy]=E.DIR[dir];ctx.strokeStyle='#267e91';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+        for(let i=1;i<=E.TUNNEL_MAX_DISTANCE;i++){
+          const x=tunnelAnchor.x+dx*i,y=tunnelAnchor.y+dy*i;
+          if(x<0||y<0||x>=s.width||y>=s.height)break;
+          if(!E.at(s,x,y))ctx.strokeRect(ox+x*scale+3,oy+y*scale+3,scale-6,scale-6);
+          if(E.at(s,x,y)?.type==='underground'&&E.at(s,x,y).dir===dir)break;
+        }
+        ctx.setLineDash([]);
       }
     }
     if(document.activeElement===canvas){ctx.strokeStyle='#477d96';ctx.lineWidth=2;ctx.strokeRect(ox+cursor.x*scale+2,oy+cursor.y*scale+2,scale-4,scale-4);}

@@ -56,7 +56,8 @@
       return;
     }
   }
-  const COST = {belt: 5, cat: 20, source: 40, machine: 60, counter: 30, splitter: 25, bridge: 35};
+  const COST = {belt: 5, cat: 20, source: 40, machine: 60, counter: 30, splitter: 25, bridge: 35, underground:20};
+  const TUNNEL_MAX_DISTANCE = 5; // Up to four ground cells between the portals.
   const PRICE = {tunaSushi: 12, salmonSushi: 16, maki: 22};
   const GOALS = [
     {item: 'tunaSushi', count: 20, reward: 350, title: 'まぐろ寿司を20皿提供', unlock: 'サーモン・分岐器・敷地20×14'},
@@ -66,6 +67,52 @@
   const SIZE = [[14, 10], [20, 14], [24, 18], [28, 20]];
   const key = (x, y) => x + ',' + y;
   const at = (s, x, y) => s.cells[key(x, y)];
+  function tunnelPartner(s,x,y) {
+    const e=at(s,x,y);
+    if(e?.type!=='underground')return null;
+    const sign=e.option==='in'?1:-1, [dx,dy]=DIR[e.dir];
+    for(let distance=1;distance<=TUNNEL_MAX_DISTANCE;distance++){
+      const tx=x+dx*distance*sign,ty=y+dy*distance*sign,other=at(s,tx,ty);
+      if(other?.type!=='underground'||other.dir!==e.dir)continue;
+      // The nearest portal of this direction blocks more distant connections.
+      return other.option!==e.option?{x:tx,y:ty,distance}:null;
+    }
+    return null;
+  }
+  function surfaceLane(e) {
+    return e && (['belt','splitter','bridge'].includes(e.type) || (e.type==='underground'&&e.option==='out'));
+  }
+  function tunnelBusy(e){return e?.type==='underground'&&e.option==='in'&&e.tunnel?.some(Boolean);}
+  function preserveTunnels(s,next,mapping={}) {
+    for(const [k,e] of Object.entries(s.cells)){
+      if(!tunnelBusy(e))continue;
+      const [x,y]=k.split(',').map(Number),before=tunnelPartner(s,x,y);
+      const dest=mapping[k]||{x,y},after=tunnelPartner(next,dest.x,dest.y);
+      const expected=before&&(mapping[key(before.x,before.y)]||before);
+      if(!next.cells[key(dest.x,dest.y)] || !after || !expected || after.x!==expected.x || after.y!==expected.y || after.distance!==before.distance)
+        return '地下に食材があります。入口と出口を一緒に移設するか、搬送を終えてから変更してください';
+    }
+    return '';
+  }
+  function rotate(s,x,y){
+    const e=at(s,x,y);if(!e)return '設備がありません';
+    const rotated=rotatedEntity(e,1),next={...s,cells:{...s.cells,[key(x,y)]:rotated}};
+    const error=preserveTunnels(s,next);if(error)return error;
+    s.cells=next.cells;return '';
+  }
+  // Rendering-only topology: no change to existing lane acceptance/merge rules.
+  function beltInputs(s,x,y){
+    const e=at(s,x,y);if(e?.type!=='belt')return [];
+    const inputs=[];
+    for(let side=0;side<4;side++){
+      if(side===e.dir)continue;
+      const [dx,dy]=DIR[side],other=at(s,x+dx,y+dy),toward=(side+2)%4;
+      if(!other)continue;
+      if(other.type==='bridge' || (['belt','cat','source','machine','splitter'].includes(other.type)||other.type==='underground'&&other.option==='out')&&other.dir===toward
+        || other.type==='splitter'&&(other.dir+3)%4===toward)inputs.push(side);
+    }
+    return inputs.length?inputs:[(e.dir+2)%4];
+  }
   function unlockLevel(type, option) {
     if (type === 'bridge' || ['cucumber', 'nori', 'cucumberPrep', 'makiRoll'].includes(option)) return 2;
     if (type === 'splitter' || ['salmon', 'salmonPrep', 'salmonGrip'].includes(option)) return 1;
@@ -105,6 +152,7 @@
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= s.width || y >= s.height) return '敷地の外には置けません';
     if (at(s,x,y)) return 'ここには設備があります。移設する場合は先に撤去してください';
     if (!COST[type]) return '設備を選んでください';
+    if(type==='underground'&&!['in','out'].includes(option))return '地下の入口か出口を選んでください';
     if (type === 'source' && !['rice','tuna','salmon','cucumber','nori'].includes(option)) return '食材を選んでください';
     if (type === 'machine' && !Object.hasOwn(MACHINES,option)) return '調理台を選んでください';
     if (unlockLevel(type,option) > s.stage) return '注文を達成すると使えるようになります';
@@ -113,27 +161,33 @@
   }
   function place(s,x,y,type,option='',dir=0) {
     const error = validatePlacement(s,x,y,type,option); if (error) return error;
-    s.cells[key(x,y)] = entity(type,option,dir); s.coins -= COST[type]; return '';
+    const next={...s,cells:{...s.cells,[key(x,y)]:entity(type,option,dir)}};
+    const connectionError=preserveTunnels(s,next);if(connectionError)return connectionError;
+    s.cells=next.cells;s.coins -= COST[type]; return '';
   }
   function remove(s,x,y) {
     const e = at(s,x,y); if (!e) return 'ここには設備がありません';
-    s.coins += e.cost; delete s.cells[key(x,y)]; return '';
+    const next={...s,cells:{...s.cells}};delete next.cells[key(x,y)];
+    if(tunnelBusy(e))return '地下に食材があります。搬送を終えてから撤去してください';
+    const error=preserveTunnels(s,next);if(error)return error;
+    s.coins += e.cost;s.cells=next.cells;return '';
   }
   function accepts(e, item, dir, viaCat) {
     if (!e) return false;
+    if(e.type==='underground')return e.option==='in'&&dir===e.dir&&!e.packet;
     if (e.type === 'belt' || e.type === 'splitter') return !e.packet;
     if (e.type === 'bridge') return !e[dir % 2 ? 'v' : 'h'];
     if (e.type === 'machine') return viaCat && inputTypes(e.option).includes(item) && (e.inv[item] || 0) < 4;
     return e.type === 'counter' && viaCat && !e.mealTicks && !!PRICE[item];
   }
   function put(s,e,item,dir) {
-    if (e.type === 'belt' || e.type === 'splitter') e.packet = {type: item, dir};
+    if (e.type === 'belt' || e.type === 'splitter' || e.type==='underground') e.packet = {type: item, dir};
     else if (e.type === 'bridge') e[dir % 2 ? 'v' : 'h'] = {type:item, dir};
     else if (e.type === 'machine') e.inv[item] = (e.inv[item] || 0) + 1;
     else if (e.type === 'counter') { s.sold[item]++; s.coins += PRICE[item]; e.mealTicks = MEAL_TICKS; }
   }
   function peek(e, axis, filter) {
-    if (!e) return null;
+    if (!e || e.type==='underground'&&e.option==='in') return null;
     const p = e.type === 'bridge' ? e[axis % 2 ? 'v' : 'h'] : e.packet;
     const item = p?.type || e.out[0];
     return item && (!filter || filter === item) ? item : null;
@@ -164,7 +218,7 @@
         const side = (seat.turn + i) % DIR.length;
         const [dx, dy] = DIR[side];
         const lane = at(s, x + dx, y + dy);
-        if (!lane || !['belt', 'splitter', 'bridge'].includes(lane.type)) continue;
+        if (!surfaceLane(lane)) continue;
         const slot = lane.type === 'bridge' ? (side % 2 ? 'v' : 'h') : 'packet';
         const plate = lane[slot];
         if (!plate || !PRICE[plate.type]) continue;
@@ -183,7 +237,7 @@
       for (let i=0;i<DIR.length;i++) {
         const side=(s.ticks+i)%DIR.length, [dx,dy]=DIR[side];
         const sourceKey=key(x+dx,y+dy), lane=at(s,x+dx,y+dy);
-        if (!lane || !['belt','splitter','bridge'].includes(lane.type)) continue;
+        if (!surfaceLane(lane)) continue;
         const slot=lane.type==='bridge' ? (side%2?'v':'h') : 'packet';
         const packet=snapshot.get(sourceKey)?.[slot];
         if (!packet || lane[slot]!==packet || touched.has(sourceKey+':'+slot)) continue;
@@ -196,7 +250,7 @@
     }
     for (const [k,e] of ordered) {
       const [x,y] = k.split(',').map(Number);
-      if (e.type === 'belt' || e.type === 'splitter' || e.type === 'bridge') {
+      if (e.type === 'belt' || e.type === 'splitter' || e.type === 'bridge' || e.type==='underground'&&e.option==='out') {
         const slots = e.type === 'bridge' ? ['h','v'] : ['packet'];
         for (const slot of slots) {
           const p = snapshot.get(k)[slot]; if (!p || e[slot] !== p || touched.has(k+':'+slot)) continue;
@@ -211,7 +265,7 @@
         const item=snapshot.get(k).out;
         const [dx,dy]=DIR[e.dir], target=at(s,x+dx,y+dy);
         if (item && e.out[0]===item && !touched.has(k+':out')
-          && target && ['belt','splitter','bridge'].includes(target.type)
+          && target && ['belt','splitter','bridge','underground'].includes(target.type)
           && accepts(target,item,e.dir,false)) {
           e.out.shift();
           touched.add(k+':out');
@@ -228,6 +282,22 @@
         } else e.progress=0;
       }
     }
+    // Advance hidden cells after surface transport: fresh packets cannot move twice.
+    for(const [k,e] of entries){
+      if(e.type!=='underground'||e.option!=='in')continue;
+      const [x,y]=k.split(',').map(Number),partner=tunnelPartner(s,x,y);
+      if(!partner)continue;
+      const exit=at(s,partner.x,partner.y),length=partner.distance-1;
+      if(!e.tunnel?.some(Boolean) && e.tunnel?.length!==length)e.tunnel=Array(length).fill(null);
+      const queue=e.tunnel;
+      if(length && queue[length-1] && !exit.packet){exit.packet=queue[length-1];queue[length-1]=null;}
+      for(let i=length-2;i>=0;i--)if(queue[i]&&!queue[i+1]){queue[i+1]=queue[i];queue[i]=null;}
+      const packet=snapshot.get(k).packet;
+      if(packet && e.packet===packet){
+        if(!length&&!exit.packet){exit.packet=packet;e.packet=null;}
+        else if(length&&!queue[0]){queue[0]=packet;e.packet=null;}
+      }
+    }
     for (const [,e] of entries) {
       if (e.type === 'source') {
         if(e.out.length < 4 && ++e.progress >= 6) {e.out.push(e.option); e.progress=0;}
@@ -242,6 +312,7 @@
     }
   }
   function status(e) {
+    if(e.type==='underground')return e.option==='in'?'地下入口：'+(e.tunnel?.filter(Boolean).length||0)+'個を地下で搬送中':'地下出口：'+(e.packet?'出口に食材があります':'食材待ち');
     if(e.type==='machine') {
       if(e.out.length>=4) return '搬出口が満杯';
       if(e.progress) return ITEMS[RECIPES[e.activeRecipe].output][0]+'を調理中';
@@ -282,6 +353,16 @@
       for(const [i,n] of Object.entries(e.inv)) if(!ITEMS[i] || !int(n,4)) throw Error('材料数が不正です');
       for(const slot of ['packet','h','v']) if(e[slot] && (!ITEMS[e[slot].type] || !int(e[slot].dir,3))) throw Error('搬送データが不正です');
     }
+    for(const [k,e] of Object.entries(v.cells)){
+      if(e.type!=='underground')continue;
+      if(!['in','out'].includes(e.option) || (e.tunnel!==undefined&&(!Array.isArray(e.tunnel)||e.tunnel.length>4)))throw Error('地下設備が不正です');
+      if(e.option==='out'&&e.tunnel?.length)throw Error('地下出口の保存が不正です');
+      if(e.tunnel?.some(p=>p&&(!ITEMS[p.type]||p.dir!==e.dir)))throw Error('地下の食材が不正です');
+      if(tunnelBusy(e)){
+        const [x,y]=k.split(',').map(Number),partner=tunnelPartner(v,x,y);
+        if(!partner||e.tunnel.length!==partner.distance-1)throw Error('地下の接続が不正です');
+      }
+    }
     v.version=2;v.running=false;v.events=[];return v;
   }
   function selectRect(s, a, b) {
@@ -307,6 +388,7 @@
     for(const slot of ['packet','h','v']) {
       result[slot]=e[slot]?{...e[slot],dir:(e[slot].dir+turns)%4}:null;
     }
+    if(e.tunnel)result.tunnel=e.tunnel.map(p=>p?{...p,dir:(p.dir+turns)%4}:null);
     if(turns%2) [result.h,result.v]=[result.v,result.h];
     return result;
   }
@@ -326,7 +408,10 @@
       if (x<0 || y<0 || x>=s.width || y>=s.height) return '敷地の外には移設できません';
       if (at(s,x,y) && !sources.has(key(x,y))) return '移動先に別の設備があります';
     }
-    return '';
+    const targets=moveTargets(cells,dx,dy,turns),mapping={},next={...s,cells:{...s.cells}};
+    for(const c of cells)delete next.cells[key(c.x,c.y)];
+    cells.forEach((c,i)=>{mapping[key(c.x,c.y)]=targets[i];next.cells[key(targets[i].x,targets[i].y)]=rotatedEntity(at(s,c.x,c.y),turns);});
+    return preserveTunnels(s,next,mapping);
   }
   function moveEntities(s, cells, dx, dy, turns=0) {
     const error = validateMove(s,cells,dx,dy,turns);
@@ -338,6 +423,6 @@
     s.cells = next;
     return '';
   }
-  const api={introStep,moveTargets,rotatedEntity,selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
+  const api={TUNNEL_MAX_DISTANCE,tunnelPartner,tunnelBusy,beltInputs,rotate,introStep,moveTargets,rotatedEntity,selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
   if(typeof module!=='undefined') module.exports=api; else root.SushiEngine=api;
 })(typeof window!=='undefined'?window:globalThis);

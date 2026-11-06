@@ -250,4 +250,109 @@ test('導入中の自由配置では固定マスを案内せず、旧保存の�
   assert.equal(restored.cells['2,2'].type,'cat');assert.equal(restored.cells['2,2'].filter,'rice');
   assert.equal(E.introStep(E.create()),'connect');
 });
+test('カーブの接続方向は8方向と合流・撤去・回転に追従する',()=>{
+  for(let dir=0;dir<4;dir++)for(const side of [(dir+1)%4,(dir+3)%4]){
+    const s=empty();add(s,4,4,'belt','',dir);const [dx,dy]=E.DIR[side];
+    add(s,4+dx,4+dy,'belt','',(side+2)%4);
+    assert.deepEqual(E.beltInputs(s,4,4),[side]);
+    E.remove(s,4+dx,4+dy);assert.deepEqual(E.beltInputs(s,4,4),[(dir+2)%4]);
+  }
+  const s=empty();add(s,4,4,'belt');add(s,3,4,'source','rice');add(s,4,3,'belt','',1);
+  assert.deepEqual(E.beltInputs(s,4,4),[2,3]);
+  E.rotate(s,4,3);assert.deepEqual(E.beltInputs(s,4,4),[2]);
+});
+test('地下接続は四方向・最大4中間マス・同方向の最寄りを守る',()=>{
+  for(let dir=0;dir<4;dir++)for(let distance=1;distance<=5;distance++){
+    const s=empty(),[dx,dy]=E.DIR[dir];add(s,6,5,'underground','in',dir);
+    add(s,6+dx*distance,5+dy*distance,'underground','out',dir);
+    assert.equal(E.tunnelPartner(s,6,5).distance,distance);
+    assert.deepEqual(E.tunnelPartner(s,6+dx*distance,5+dy*distance),{x:6,y:5,distance});
+  }
+  const s=empty();add(s,1,1,'underground','in');add(s,7,1,'underground','out');assert.equal(E.tunnelPartner(s,1,1),null);
+  add(s,5,1,'underground','out',1);assert.equal(E.tunnelPartner(s,1,1),null);
+  E.rotate(s,5,1);E.rotate(s,5,1);E.rotate(s,5,1);assert.equal(E.tunnelPartner(s,1,1).x,5);
+  add(s,3,1,'underground','in');assert.equal(E.tunnelPartner(s,1,1),null);assert.equal(E.tunnelPartner(s,5,1).x,3);
+});
+test('地下は通常と同じ1マス1ステップで進み地上の設備と独立する',()=>{
+  for(let dir=0;dir<4;dir++)for(let distance=1;distance<=5;distance++){
+    const s=empty(),[dx,dy]=E.DIR[dir],entrance=add(s,7,7,'underground','in',dir);
+    const outlet=add(s,7+dx*distance,7+dy*distance,'underground','out',dir);
+    const lane=add(s,7+dx*(distance+1),7+dy*(distance+1),'belt','',dir);
+    for(let i=1;i<distance;i++)add(s,7+dx*i,7+dy*i,'counter');
+    entrance.packet={type:'tunaSushi',dir};s.running=true;
+    tick(s,distance-1);assert.equal(outlet.packet,null);assert.equal(s.sold.tunaSushi,0);
+    tick(s,1);assert.equal(outlet.packet.type,'tunaSushi');assert.equal(lane.packet,null);
+    // Do not let a ground counter adjacent to the exit consume the surfaced plate.
+    for(const [k,e] of Object.entries(s.cells))if(e.type==='counter')delete s.cells[k];
+    tick(s,1);assert.equal(lane.packet.type,'tunaSushi');
+  }
+});
+test('地下の入口は背面だけ受け入れ、未接続では食材を保持',()=>{
+  const s=empty(),entry=add(s,3,3,'underground','in');
+  assert.equal(E.accepts(entry,'rice',0,false),true);
+  for(const dir of [1,2,3])assert.equal(E.accepts(entry,'rice',dir,true),false);
+  entry.packet={type:'rice',dir:0};s.running=true;tick(s,10);assert.equal(entry.packet.type,'rice');
+  add(s,4,3,'cat');add(s,5,3,'belt');tick(s,10);assert.equal(E.at(s,5,3).packet,null);
+});
+test('地下が満杯でも消失・複製せず、出口を空ければ順番通り再開',()=>{
+  for(let seed=0;seed<16;seed++){
+    const s=empty();s.ticks=seed;
+    const entry=add(s,1,1,'underground','in'),outlet=add(s,6,1,'underground','out');
+    entry.packet={type:'nori',dir:0};entry.tunnel=['rice','tuna','salmon','shari'].map(type=>({type,dir:0}));
+    outlet.packet={type:'maki',dir:0};s.running=true;tick(s,30);
+    assert.equal(entry.packet.type,'nori');assert.deepEqual(entry.tunnel.map(p=>p.type),['rice','tuna','salmon','shari']);
+    const results=[];for(let i=0;i<6;i++){results.push(outlet.packet?.type);outlet.packet=null;tick(s,1);}
+    assert.deepEqual(results,['maki','shari','salmon','tuna','rice','nori']);
+  }
+});
+test('地下食材の保存復元・停止・両端の移設と90度回転を保持',()=>{
+  const s=empty(),entry=add(s,2,2,'underground','in');add(s,6,2,'underground','out');
+  entry.tunnel=[{type:'tuna',dir:0},null,{type:'rice',dir:0}];entry.packet={type:'salmon',dir:0};
+  const before=E.save(s);tick(s,50);assert.equal(E.save(s),before);
+  const restored=E.restore(before);assert.deepEqual(restored.cells,s.cells);
+  assert.equal(E.moveEntities(restored,[{x:2,y:2},{x:6,y:2}],2,1,1),'');
+  const moved=E.at(restored,4,3);assert.deepEqual(E.tunnelPartner(restored,4,3),{x:4,y:7,distance:4});
+  assert.equal(moved.packet.dir,1);assert.equal(moved.tunnel[0].dir,1);
+  assert.deepEqual(E.restore(E.save(restored)).cells,restored.cells);
+  s.running=true;restored.running=true;tick(s,5);tick(restored,5);
+  assert.equal(E.at(s,6,2).packet.type,E.at(restored,4,7).packet.type);
+});
+test('搬送中の接続を壊す操作は一括拒否し、食材と費用を保持',()=>{
+  const s=empty(),entry=add(s,1,1,'underground','in');add(s,5,1,'underground','out');
+  entry.tunnel=[{type:'rice',dir:0},null,null];const before=E.save(s);
+  for(const action of [()=>E.remove(s,1,1),()=>E.remove(s,5,1),()=>E.rotate(s,1,1),()=>E.rotate(s,5,1),
+    ()=>E.place(s,3,1,'underground','out',0),()=>E.moveEntities(s,[{x:5,y:1}],0,1)]){
+    assert.ok(action());assert.equal(E.save(s),before);
+  }
+  assert.equal(E.place(s,3,1,'belt'), '');
+});
+test('地下出口の皿は客席へ一度だけ提供され、新規搬入は同一ステップに潜らない',()=>{
+  const s=empty(),src=add(s,0,1,'source','rice'),entry=add(s,1,1,'underground','in'),outlet=add(s,3,1,'underground','out');
+  src.out=['rice'];s.running=true;tick(s,1);assert.equal(entry.packet.type,'rice');assert.equal(outlet.packet,null);
+  tick(s,1);assert.equal(entry.tunnel[0].type,'rice');assert.equal(outlet.packet,null);
+  const seat=add(s,3,0,'counter');outlet.packet={type:'maki',dir:0};const money=s.coins;tick(s,1);
+  assert.equal(s.sold.maki,1);assert.equal(s.coins,money+22);assert.equal(seat.mealTicks,E.MEAL_TICKS);
+});
+test('不正な地下保存を拒否し、空の両端は再接続・撤去・返金できる',()=>{
+  const s=empty(),entry=add(s,1,1,'underground','in');add(s,4,1,'underground','out');
+  entry.tunnel=[{type:'rice',dir:0},null];const raw=E.save(s);
+  for(const mutate of [v=>v.cells['1,1'].tunnel[0].type='unknown',v=>v.cells['1,1'].tunnel[0].dir=1,v=>delete v.cells['4,1'],v=>v.cells['1,1'].tunnel.push(null),v=>v.cells['4,1'].option='bad']){
+    const v=JSON.parse(raw);mutate(v);assert.throws(()=>E.restore(JSON.stringify(v)));
+  }
+  entry.tunnel=[null,null];assert.equal(E.rotate(s,4,1),'');assert.equal(E.tunnelPartner(s,1,1),null);
+  const coins=s.coins;assert.equal(E.remove(s,1,1),'');assert.equal(s.coins,coins+20);assert.ok(E.remove(s,1,1));
+});
+test('地下同士の交差は独立し、地上を占有しない',()=>{
+  const s=empty(),a=add(s,1,3,'underground','in'),b=add(s,3,1,'underground','in',1);
+  const ax=add(s,5,3,'underground','out'),bx=add(s,3,5,'underground','out',1);
+  const ground=add(s,3,3,'belt');ground.packet={type:'nori',dir:0};
+  a.packet={type:'tuna',dir:0};b.packet={type:'salmon',dir:1};s.running=true;tick(s,4);
+  assert.equal(ax.packet.type,'tuna');assert.equal(bx.packet.type,'salmon');assert.equal(ground.packet.type,'nori');
+});
+test('初期段階で地下入口出口を購入して提供まで生産できる',()=>{
+  const s=E.create(),money=s.coins;add(s,9,5,'underground','in');add(s,12,5,'underground','out');
+  assert.equal(s.coins,money-40);add(s,12,4,'counter');s.running=true;tick(s,400);
+  assert.ok(s.sold.tunaSushi>=20);assert.equal(s.stage,1);
+  assert.deepEqual(E.restore(E.save(s)).cells,s.cells);
+});
 console.log(passed+' tests passed');
