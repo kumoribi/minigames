@@ -7,7 +7,7 @@
   try {const raw=localStorage.getItem(SAVE);if(raw)s=E.restore(raw);motion=localStorage.getItem(PREF)==='1'||motion;} catch {loadError='保存データを読み込めませんでした。新しい工場を表示しています。';}
   let tool=null, category='transport', dir=0, selected=null, cursor={x:9,y:5}, scale=48, ox=0,oy=0, cw=0,ch=0, lastStage=-1, toastTimer, lastTime=0, accumulator=0, zoomed=false;
   let panel=null, saveIssue='';
-  let relocation=null;
+  let relocation=null, intro=null;
   const panels={build:'buildPanel',inspect:'inspector',order:'orderPanel',menu:'menuPanel'};
   const panelButtons={build:'buildToggle',order:'orderToggle',menu:'menuToggle'};
   const arrows=['→','↓','←','↑'];
@@ -56,7 +56,18 @@
     $('goal').textContent=g?g.title:'猫たちと、もっと大きな工場へ';$('goalCount').textContent=g?Math.min(g.count,s.sold[g.item])+' / '+g.count:'自由建設';$('progress').value=g?Math.min(g.count,s.sold[g.item]):20;
     $('unlock').textContent=g?'解放：'+g.unlock+' ／ 報酬 '+g.reward+'円':'全設備が使えます。生産ラインを好きなだけ改良しよう。';
     if(lastStage!==s.stage){lastStage=s.stage;palette();}
-    $('guide').textContent=tool==='erase'?'撤去で建設費を全額返却。内部の食材は廃棄されます。':tool?toolName()+'を配置 '+arrows[dir]+' ／ 空きマスをタップ':!E.at(s,9,5)&&s.stage===0?'「建設」からレーンを選び、点線のマスをつなごう。':'ドラッグで盤面を移動。設備をタップすると詳細を開きます。';
+    intro=E.introStep(s);
+    const guide={
+      connect:'1/3 「建設」→寿司レーン。向き→で点線をつなごう（5円）',
+      repair:'1/3 点線だったマスには右向きの寿司レーンが必要です。設備を選んで出口を直そう。',
+      start:'2/3 接続できました！上の「稼働する」で自動調理を始めよう。',
+      produce:'3/3 米→シャリ、魚→ネタ→握り寿司。客席に最初の一皿が届くのを見よう。',
+      complete:s.stage===0?'最初の一皿を提供！次はまぐろ20皿。設備をタップすると待ち時間や材料を確認できます。':'次は猫で仕分け。「建設」→おてつだい猫を置き、設備の「仕分け」で材料を指定しよう。',
+      custom:'自由に改良できます。設備をタップして材料待ち・出口満杯を確認しよう。'
+    };
+    $('guide').textContent=tool==='erase'?'撤去で建設費を全額返却。内部の食材は廃棄されます。'
+      :intro==='connect'&&tool&&tool.type!=='belt'?toolName()+'を配置 ／ 最初の接続には「寿司レーン」を選びます。'
+      :guide[intro] || (tool?toolName()+'を配置 '+arrows[dir]+' ／ 空きマスをタップ':'ドラッグで盤面を移動。設備をタップすると詳細を開きます。');
     inspect();refreshMove();
   }
   function beginMove(cells=null) {
@@ -118,7 +129,7 @@
   };
   function inspect(){
     const e=selected&&E.at(s,selected.x,selected.y);$('editControls').hidden=!e;
-    if(!e){$('detail').innerHTML=tool&&tool!=='erase'?'<strong>'+toolName()+'を配置 '+arrows[dir]+'</strong><br><small>空きマスをタップ。向きボタンで回転できます。</small>':!E.at(s,9,5)&&s.stage===0?'まずは点線のマスにレーンを1本置こう。<br><small>「レーン」を選ぶ → 光るマスをタップ → 稼働する</small>':'設備をタップすると、材料と詰まりの原因を確認できます。';return;}
+    if(!e){$('detail').innerHTML=tool&&tool!=='erase'?'<strong>'+toolName()+'を配置 '+arrows[dir]+'</strong><br><small>空きマスをタップ。向きボタンで回転できます。</small>':intro==='connect'?'まずは点線のマスにレーンを1本置こう。<br><small>「レーン」を選ぶ → 光るマスをタップ → 稼働する</small>':'設備をタップすると、材料と詰まりの原因を確認できます。';return;}
     const name=e.type==='machine'?E.MACHINES[e.option].name:e.type==='source'?E.ITEMS[e.option][0]+'の入荷':names[e.type];
     let extra='';if(e.type==='machine') extra=E.inputTypes(e.option,s.stage).map(i=>E.ITEMS[i][0]+' '+(e.inv[i]||0)+'/4').join(' ｜ ');
     if(e.type==='source'||e.type==='machine')extra+=(extra?' ｜ ':'')+'完成 '+e.out.length+'/4'+' ｜ 自動搬出 '+arrows[e.dir]+'（隣のレーンへ）';
@@ -267,7 +278,7 @@
     for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
       const px=ox+x*scale,py=oy+y*scale,z=scale;if(px+z<0||py+z<0||px>cw||py>ch)continue;
       round(px+1,py+1,z-2,z-2,2,(x+y)%2?'#e8ebda':'#e3e7d5');const e=E.at(s,x,y);
-      if(!e){if(x===9&&y===5&&s.stage===0){ctx.strokeStyle='#d48842';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.strokeRect(px+3,py+3,z-6,z-6);ctx.setLineDash([]);arrow(0,px+z/2,py+z/2,z,'#bc8858');}continue;}
+      if(!e){if(x===9&&y===5&&intro==='connect'){ctx.strokeStyle='#d48842';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.strokeRect(px+3,py+3,z-6,z-6);ctx.setLineDash([]);arrow(0,px+z/2,py+z/2,z,'#bc8858');}continue;}
       drawEquipment(e,px,py,z,t);
       if(selected?.x===x&&selected?.y===y){ctx.strokeStyle='#eb9c47';ctx.lineWidth=3;ctx.strokeRect(px+2,py+2,z-4,z-4);}
     }
@@ -297,7 +308,7 @@
       }
     }
     if(document.activeElement===canvas){ctx.strokeStyle='#477d96';ctx.lineWidth=2;ctx.strokeRect(ox+cursor.x*scale+2,oy+cursor.y*scale+2,scale-4,scale-4);}
-    if(!E.at(s,9,5)&&s.stage===0&&scale>28)label('ここをつなごう',ox+9.5*scale,oy+4.6*scale,Math.max(10,scale*.18),'#986238');
+    if(intro==='connect'&&scale>28)label('ここをつなごう',ox+9.5*scale,oy+4.6*scale,Math.max(10,scale*.18),'#986238');
   }
   function frame(t){if(!lastTime)lastTime=t;const dt=Math.min(500,t-lastTime);lastTime=t;if(s.running){accumulator+=dt;let changed=false;while(accumulator>=E.STEP_MS){accumulator-=E.STEP_MS;E.step(s);changed=true;if(s.events.length){notify(s.events[0]);persist();}}if(changed)refresh();}draw(t);requestAnimationFrame(frame);}
   palette();refresh();requestAnimationFrame(frame);if(loadError)notify(loadError);

@@ -5,6 +5,11 @@ function test(name,fn){fn();passed++;console.log('OK '+name);}
 const tick=(s,n)=>{for(let i=0;i<n;i++)E.step(s);};
 function empty(stage=3){const s=E.create();s.cells={};s.stage=stage;[s.width,s.height]=E.SIZE[stage];s.coins=10000;return s;}
 function add(s,x,y,type,option='',dir=0){assert.equal(E.place(s,x,y,type,option,dir),'');return E.at(s,x,y);}
+function legacyStarter(){
+  const s=E.create();delete s.tutorial;
+  for(const [x,y,d] of [[2,2,0],[4,2,0],[2,7,0],[4,7,0],[6,4,1],[6,6,3],[7,5,0]])s.cells[E.key(x,y)]=E.entity('cat','',d);
+  return s;
+}
 test('開始・新規・復元は停止',()=>{const s=E.create();tick(s,500);assert.equal(s.ticks,0);s.running=true;assert.equal(E.restore(E.save(s)).running,false);});
 test('導入の空きレーンをつなぐと注文を達成',()=>{const s=E.create();add(s,9,5,'belt');s.running=true;tick(s,400);assert.ok(s.sold.tunaSushi>=20);assert.equal(s.stage,1);assert.equal(s.width,20);assert.ok(s.coins>500);});
 test('空きレーンがあると提供せず、食材が滞留',()=>{const s=E.create();s.running=true;tick(s,500);assert.equal(s.sold.tunaSushi,0);assert.equal(E.at(s,6,5).out.length,4);assert.equal(E.status(E.at(s,6,5)),'搬出口が満杯');});
@@ -27,8 +32,8 @@ test('提供は完成品だけ・一皿につき一回',()=>{const s=empty(),src
 test('全注文の段階解放・報酬は一度限り',()=>{const s=empty(0);s.running=true;let expected=s.coins;for(let stage=0;stage<3;stage++){const g=E.GOALS[stage];s.sold[g.item]=20;tick(s,1);expected+=g.reward;assert.equal(s.stage,stage+1);assert.equal(s.coins,expected);tick(s,20);assert.equal(s.coins,expected);}assert.equal(s.width,28);});
 test('途中の保存復元後も生産が同じ結果になる',()=>{const a=E.create();add(a,9,5,'belt');a.running=true;tick(a,73);const b=E.restore(E.save(a));b.running=true;tick(a,150);tick(b,150);assert.equal(E.save(a),E.save(b));});
 test('壊れた保存データを拒否',()=>{assert.throws(()=>E.restore('{'));for(const mutate of [s=>s.stage=9,s=>s.coins=-1,s=>s.width=999,s=>s.cells['1,2'].option='unknown',s=>s.cells['2,2'].dir=8,s=>s.cells['1,2'].out=['???']]){const s=E.create();mutate(s);assert.throws(()=>E.restore(JSON.stringify(s)));}});
-test('実搬送で3種類の注文を順に達成できる',()=>{
-  const s=E.create();add(s,9,5,'belt');s.running=true;tick(s,400);assert.equal(s.stage,1);
+test('旧猫付きラインの実搬送で3種類の注文を順に達成できる',()=>{
+  const s=legacyStarter();add(s,9,5,'belt');s.running=true;tick(s,400);assert.equal(s.stage,1);
   const replace=(x,y,t,o)=>{E.remove(s,x,y);add(s,x,y,t,o);};
   replace(1,7,'source','salmon'); // Reuse both stations with salmon on the same line.
   for(let i=0;i<1200 && s.stage===1;i++) E.step(s);
@@ -229,5 +234,20 @@ test('猫なしのラインで全注文達成、保存復元と猫フィルタ�
   cat.filter='tunaCut';lane.packet={type:'salmonCut',dir:0};filtered.running=true;tick(filtered,1);
   assert.ok(lane.packet);assert.equal(dest.inv.salmonCut,undefined);
   lane.packet={type:'tunaCut',dir:0};tick(filtered,1);assert.equal(dest.inv.tunaCut,1);assert.equal(lane.packet,null);
+});
+test('新規工場の導入は猫なしで接続・稼働・提供へ進む',()=>{
+  const s=E.create();assert.equal(s.running,false);assert.equal(Object.values(s.cells).some(e=>e.type==='cat'),false);
+  assert.equal(E.introStep(s),'connect');add(s,9,5,'belt','',1);assert.equal(E.introStep(s),'repair');
+  E.at(s,9,5).dir=0;assert.equal(E.introStep(s),'start');s.running=true;assert.equal(E.introStep(s),'produce');
+  const restored=E.restore(E.save(s));assert.equal(E.introStep(restored),'start');
+  for(let i=0;i<100&&!s.sold.tunaSushi;i++)tick(s,1);
+  assert.ok(s.sold.tunaSushi>0);assert.equal(E.introStep(s),'complete');
+});
+test('導入中の自由配置では固定マスを案内せず、旧保存の配置を保持',()=>{
+  const s=E.create();E.remove(s,3,2);assert.equal(E.introStep(s),'custom');
+  const old=legacyStarter();old.cells['2,2'].filter='rice';old.cells['3,2'].inv={rice:3};old.coins=123;
+  const restored=E.restore(E.save(old));assert.deepEqual(restored,old);assert.equal(E.introStep(restored),null);
+  assert.equal(restored.cells['2,2'].type,'cat');assert.equal(restored.cells['2,2'].filter,'rice');
+  assert.equal(E.introStep(E.create()),'connect');
 });
 console.log(passed+' tests passed');

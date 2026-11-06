@@ -75,16 +75,31 @@
     return {type, option: option || '', dir, input: (dir + 2) % 4, filter: '', inv: {}, out: [], packet: null, h: null, v: null, progress: 0, activeRecipe: '', turn: 0, cost: COST[type]};
   }
   function create() {
-    const s = {version: 2, width: 14, height: 10, cells: {}, coins: 500, stage: 0, sold: {tunaSushi: 0, salmonSushi: 0, maki: 0}, ticks: 0, running: false, events: []};
+    const s = {version: 2, tutorial: 'auto-v1', width: 14, height: 10, cells: {}, coins: 500, stage: 0, sold: {tunaSushi: 0, salmonSushi: 0, maki: 0}, ticks: 0, running: false, events: []};
     const add = (x, y, t, o, d) => s.cells[key(x, y)] = entity(t, o, d);
     for (const [y, raw, recipe] of [[2, 'rice', 'cook'], [7, 'tuna', 'prep']]) {
-      add(1,y,'source',raw); add(2,y,'cat'); add(3,y,'machine',recipe); add(4,y,'cat'); add(5,y,'belt');
+      add(1,y,'source',raw); add(2,y,'belt'); add(3,y,'machine',recipe); add(4,y,'belt'); add(5,y,'belt');
     }
-    add(6,2,'belt','',1); add(6,3,'belt','',1); add(6,4,'cat','',1);
-    add(6,7,'belt','',3); add(6,6,'cat','',3); add(6,5,'machine','grip');
-    add(7,5,'cat'); add(8,5,'belt'); /* (9,5) is the tutorial gap */
+    add(6,2,'belt','',1); add(6,3,'belt','',1); add(6,4,'belt','',1);
+    add(6,7,'belt','',3); add(6,6,'belt','',3); add(6,5,'machine','grip');
+    add(7,5,'belt'); add(8,5,'belt'); /* (9,5) is the tutorial gap */
     add(10,5,'belt'); add(11,5,'belt'); add(11,4,'counter');
     return s;
+  }
+  function introStep(s) {
+    if(s.tutorial!=='auto-v1')return null;
+    if(s.stage>0 || Object.values(s.sold).some(n=>n>0))return 'complete';
+    // Only direct players to the fixed gap while the starter route still exists.
+    const starter=create();
+    for(const [k,expected] of Object.entries(starter.cells)) {
+      const actual=s.cells[k];
+      if(!actual || ['type','option','dir'].some(field=>actual[field]!==expected[field]))return 'custom';
+    }
+    if(Object.keys(s.cells).some(k=>!starter.cells[k] && k!=='9,5'))return 'custom';
+    const gap=at(s,9,5);
+    if(!gap)return 'connect';
+    if(gap.type!=='belt'||gap.dir!==0)return 'repair';
+    return s.running?'produce':'start';
   }
   function validatePlacement(s, x, y, type, option) {
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= s.width || y >= s.height) return '敷地の外には置けません';
@@ -323,6 +338,6 @@
     s.cells = next;
     return '';
   }
-  const api={moveTargets,rotatedEntity,selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
+  const api={introStep,moveTargets,rotatedEntity,selectRect,validateMove,moveEntities,STEP_MS,MEAL_TICKS,DIR,ITEMS,RECIPES,MACHINES,inputTypes,COST,PRICE,GOALS,SIZE,key,at,entity,create,place,remove,step,status,save,restore,unlockLevel,accepts};
   if(typeof module!=='undefined') module.exports=api; else root.SushiEngine=api;
 })(typeof window!=='undefined'?window:globalThis);
