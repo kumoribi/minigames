@@ -46,7 +46,7 @@
     }
     $('hand').classList.toggle('active',!tool);$('erase').classList.toggle('active',tool==='erase');
     $('buildToggle').classList.toggle('active',panel==='build'||!!(tool&&tool!=='erase'));
-    $('toolHint').textContent=tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「画面移動」に切り替え。':tool?.type==='cat'?'猫は矢印の反対側から取り、矢印へ渡します。配置後に変更できます。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
+    $('toolHint').textContent=tool==='erase'?'撤去すると費用は全額返却。内部の食材は廃棄されます。':tool?.type==='belt'?'ドラッグで連続配置。移動したいときは「画面移動」に切り替え。':tool?.type==='cat'?'猫は食材の仕分け役。配置後に「仕分け」で材料を指定できます。':tool?.type==='machine'?'調理台は隣のレーンから材料を自動取得。矢印方向へ完成品を搬出します。':tool?.type==='source'?'入荷箱は矢印方向の隣のレーンへ食材を自動搬出します。':'建設費は撤去で全額返却。🔒は注文達成で解放されます。';
   }
   function refresh(){
     $('coins').textContent=s.coins.toLocaleString()+' 円';$('sold').innerHTML=Object.values(s.sold).reduce((a,b)=>a+b,0).toLocaleString()+' <em>皿</em>';
@@ -121,10 +121,11 @@
     if(!e){$('detail').innerHTML=tool&&tool!=='erase'?'<strong>'+toolName()+'を配置 '+arrows[dir]+'</strong><br><small>空きマスをタップ。向きボタンで回転できます。</small>':!E.at(s,9,5)&&s.stage===0?'まずは点線のマスにレーンを1本置こう。<br><small>「レーン」を選ぶ → 光るマスをタップ → 稼働する</small>':'設備をタップすると、材料と詰まりの原因を確認できます。';return;}
     const name=e.type==='machine'?E.MACHINES[e.option].name:e.type==='source'?E.ITEMS[e.option][0]+'の入荷':names[e.type];
     let extra='';if(e.type==='machine') extra=E.inputTypes(e.option,s.stage).map(i=>E.ITEMS[i][0]+' '+(e.inv[i]||0)+'/4').join(' ｜ ');
-    if(e.type==='source'||e.type==='machine')extra+=(extra?' ｜ ':'')+'完成 '+e.out.length+'/4';
+    if(e.type==='source'||e.type==='machine')extra+=(extra?' ｜ ':'')+'完成 '+e.out.length+'/4'+' ｜ 自動搬出 '+arrows[e.dir]+'（隣のレーンへ）';
+    if(e.type==='machine')extra+=' ｜ 上下左右のレーンから材料を自動取得';
     if(e.type==='cat')extra='取る側 '+arrows[e.input]+' → 渡す側 '+arrows[e.dir];
     $('detail').replaceChildren();const title=document.createElement('strong');title.textContent=name+' ('+(selected.x+1)+','+(selected.y+1)+')';const line=document.createElement('div');line.textContent=E.status(e);const small=document.createElement('small');small.textContent=extra;$('detail').append(title,line,small);
-    $('rotateSelected').hidden=!['belt','cat','splitter'].includes(e.type);$('rotateInput').hidden=e.type!=='cat';$('filterLabel').hidden=!['cat','splitter'].includes(e.type);
+    $('rotateSelected').hidden=!['belt','cat','splitter','source','machine'].includes(e.type);$('rotateInput').hidden=e.type!=='cat';$('filterLabel').hidden=!['cat','splitter'].includes(e.type);
     if(document.activeElement!==$('filter'))$('filter').value=e.filter;
   }
   $('filter').add(new Option('指定なし',''));for(const [k,v] of Object.entries(E.ITEMS))$('filter').add(new Option(v[0],k));
@@ -252,6 +253,10 @@
           round(z*.08,z*.89,z*.84,z*.06,z*.02,'#acb8a5');
           round(z*.08,z*.89,z*.84*e.mealTicks/E.MEAL_TICKS,z*.06,z*.02,'#38674f');
         }
+      }
+      if(e.type==='source'||e.type==='machine'){
+        const [dx,dy]=E.DIR[e.dir];
+        arrow(e.dir,z*(.5+dx*.4),z*(.5+dy*.4),z*.45,'#285d48');
       }
       if(e.out.length) {round(z*.69,z*.02,z*.28,z*.23,z*.07,'#fff9e9');label(e.out.length,z*.83,z*.14,z*.17);}
       ctx.restore();

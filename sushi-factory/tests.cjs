@@ -16,7 +16,7 @@ test('合流は競合しても1個だけ受け取り、残りを保持',()=>{for
 test('猫は指定した側から取り、指定した側へ渡す',()=>{const s=empty(),src=add(s,1,0,'belt'),c=add(s,1,1,'cat'),dst=add(s,2,1,'belt');c.input=3;src.packet={type:'rice',dir:1};s.running=true;tick(s,1);assert.equal(dst.packet.type,'rice');assert.equal(src.packet,null);});
 test('猫のフィルターは別の食材を取り出さない',()=>{const s=empty(),src=add(s,0,0,'source','rice'),c=add(s,1,0,'cat');add(s,2,0,'belt');src.out=['rice'];c.filter='tuna';s.running=true;tick(s,1);assert.equal(src.out.length,1);assert.equal(E.at(s,2,0).packet,null);});
 test('猫同士が同じ入荷箱を取り合っても複製しない',()=>{const s=empty(),src=add(s,1,1,'source','rice');add(s,2,1,'cat');add(s,3,1,'belt');add(s,1,2,'cat','',1);add(s,1,3,'belt');src.out=['rice'];s.running=true;tick(s,1);assert.equal([E.at(s,3,1),E.at(s,1,3)].filter(e=>e.packet).length,1);});
-test('レーンから調理台への直接搬入は禁止',()=>{const s=empty(),a=add(s,0,0,'belt'),m=add(s,1,0,'machine','cook');a.packet={type:'rice',dir:0};s.running=true;tick(s,10);assert.ok(a.packet);assert.deepEqual(m.inv,{});});
+test('猫なしでレーンから材料を取り込み調理する',()=>{const s=empty(),a=add(s,0,0,'belt'),m=add(s,1,0,'machine','cook');a.packet={type:'rice',dir:0};s.running=true;tick(s,10);assert.equal(a.packet,null);assert.deepEqual(m.out,['shari']);});
 test('材料不一致・保管上限',()=>{const e=E.entity('machine','grip');assert.equal(E.accepts(e,'rice',0,true),false);e.inv.shari=4;assert.equal(E.accepts(e,'shari',0,true),false);assert.equal(E.accepts(e,'tunaCut',0,true),true);});
 test('全レシピで必要材料だけを消費して1個完成',()=>{for(const [id,r] of Object.entries(E.RECIPES)){const s=empty(),m=add(s,0,0,'machine',Object.keys(E.MACHINES).find(k=>E.MACHINES[k].recipes.includes(id)));m.inv={...r.inputs};s.running=true;tick(s,r.time+2);assert.deepEqual(m.out,[r.output]);assert.ok(Object.values(m.inv).every(n=>n===0));}});
 test('材料が不足している間は消費しない',()=>{const s=empty(),m=add(s,0,0,'machine','makiRoll');m.inv={shari:2,nori:2};s.running=true;tick(s,100);assert.equal(m.inv.shari,2);assert.equal(m.out.length,0);});
@@ -164,5 +164,70 @@ test('回転したレーンと立体交差が保持した皿を正しい方向�
   const cells=[{x:2,y:2},{x:3,y:2}];assert.equal(E.moveEntities(s,cells,0,0,1),'');
   s.running=true;tick(s,1);
   assert.equal(E.at(s,2,2).v,null);assert.equal(E.at(s,2,3).packet.type,'tunaSushi');
+});
+test('全調理台が上下左右から必要な材料だけを1個取り込む',()=>{
+  for(const [option,item] of [['cook','rice'],['prep','salmon'],['grip','tunaCut'],['makiRoll','nori']]){
+    for(let side=0;side<4;side++){
+      const s=empty(),m=add(s,4,4,'machine',option),[dx,dy]=E.DIR[side];
+      const lane=add(s,4+dx,4+dy,'belt','',(side+1)%4);lane.packet={type:item,dir:0};
+      m.dir=(side+2)%4;m.out=Array(4).fill('maki');s.running=true;tick(s,1);
+      assert.equal(lane.packet,null);assert.equal(m.inv[item],1);
+    }
+  }
+  const s=empty(),m=add(s,4,4,'machine','grip');m.out=Array(4).fill('tunaSushi');
+  for(const [dx,dy] of E.DIR)add(s,4+dx,4+dy,'belt').packet={type:'shari',dir:0};
+  s.running=true;tick(s,1);assert.equal(m.inv.shari,1);
+  assert.equal(Object.values(s.cells).filter(e=>e.packet?.type==='shari').length,3);
+});
+test('不要材料・満杯・斜めは取り込まず、立体交差は接する軸だけ取得',()=>{
+  const s=empty(),m=add(s,2,2,'machine','grip');m.dir=2;m.inv.shari=4;m.out=Array(4).fill('tunaSushi');
+  const full=add(s,1,2,'belt'),wrong=add(s,2,1,'belt'),diagonal=add(s,3,3,'belt');
+  full.packet={type:'shari',dir:0};wrong.packet={type:'rice',dir:0};diagonal.packet={type:'tunaCut',dir:0};
+  s.running=true;tick(s,1);assert.equal(m.inv.shari,4);assert.ok(full.packet&&wrong.packet&&diagonal.packet);
+  const bridge=add(s,3,2,'bridge');bridge.h={type:'tunaCut',dir:0};bridge.v={type:'salmonCut',dir:3};
+  tick(s,1);assert.equal(bridge.h,null);assert.equal(bridge.v.type,'salmonCut');assert.equal(m.inv.tunaCut,1);
+});
+test('自動搬出は指定方向・空き容量を守り、同じステップに再搬送しない',()=>{
+  for(const type of ['source','machine'])for(let dir=0;dir<4;dir++){
+    const s=empty(),src=add(s,3,3,type,type==='source'?'rice':'cook',dir),[dx,dy]=E.DIR[dir];
+    const lane=add(s,3+dx,3+dy,'belt','',dir),next=add(s,3+2*dx,3+2*dy,'belt','',dir);
+    src.out=['shari','shari'];lane.packet={type:'rice',dir};s.running=true;
+    tick(s,1);assert.equal(src.out.length+(lane.packet?.type==='shari'?1:0),2);
+    next.packet=null;lane.packet=null;src.out=['shari','shari'];tick(s,1);
+    assert.equal(src.out.length,1);assert.equal(lane.packet.type,'shari');assert.equal(next.packet,null);
+  }
+  const s=empty(),src=add(s,0,0,'source','rice'),lane=add(s,1,0,'belt'),m=add(s,2,0,'machine','cook');
+  src.out=['rice'];s.running=true;tick(s,1);assert.ok(lane.packet);assert.equal(m.progress,0);
+  tick(s,1);assert.equal(lane.packet,null);assert.equal(m.progress,1);
+});
+test('調理台同士・猫と自動搬送の競合でも材料を複製しない',()=>{
+  for(let seed=0;seed<24;seed++){
+    const s=empty();s.ticks=seed;
+    const lane=add(s,3,3,'belt'),a=add(s,3,2,'machine','grip'),b=add(s,4,3,'machine','grip');
+    add(s,2,3,'cat','',2);const dst=add(s,1,3,'belt');lane.packet={type:'tunaCut',dir:0};
+    s.running=true;tick(s,1);assert.equal((a.inv.tunaCut||0)+(b.inv.tunaCut||0)+(dst.packet?1:0),1);
+    const other=empty();other.ticks=seed;
+    const src=add(other,2,2,'source','rice');add(other,3,2,'belt');add(other,2,3,'cat','',1);add(other,2,4,'belt');
+    src.out=['rice','rice'];other.running=true;tick(other,1);
+    assert.equal(src.out.length,1);assert.equal(Object.values(other.cells).filter(e=>e.packet).length,1);
+  }
+});
+test('猫なしのラインで全注文達成、保存復元と猫フィルターも共存',()=>{
+  const s=E.create();
+  for(const [k,e] of Object.entries(s.cells))if(e.type==='cat')s.cells[k]=E.entity('belt','',e.dir);
+  add(s,9,5,'belt');s.running=true;tick(s,450);assert.equal(s.stage,1);
+  E.at(s,1,7).option='salmon';for(let i=0;i<1200&&s.stage===1;i++)tick(s,1);assert.equal(s.stage,2);
+  // Replace the fish branch so leftover fish cannot block the cucumber route.
+  s.cells['1,7']=E.entity('source','cucumber');s.cells['3,7']=E.entity('machine','prep');
+  s.cells['6,5']=E.entity('machine','makiRoll');
+  for(const [x,y,d] of [[2,7,0],[4,7,0],[5,7,0],[6,7,3],[6,6,3]])s.cells[E.key(x,y)]=E.entity('belt','',d);
+  add(s,4,5,'source','nori');add(s,5,5,'belt');
+  const restored=E.restore(E.save(s));restored.running=true;
+  for(let i=0;i<1200&&s.stage===2;i++){tick(s,1);tick(restored,1);}
+  assert.equal(s.stage,3);assert.equal(E.save(s),E.save(restored));
+  const filtered=empty(),lane=add(filtered,2,2,'belt','',0),cat=add(filtered,2,3,'cat','',1),dest=add(filtered,2,4,'machine','grip');
+  cat.filter='tunaCut';lane.packet={type:'salmonCut',dir:0};filtered.running=true;tick(filtered,1);
+  assert.ok(lane.packet);assert.equal(dest.inv.salmonCut,undefined);
+  lane.packet={type:'tunaCut',dir:0};tick(filtered,1);assert.equal(dest.inv.tunaCut,1);assert.equal(lane.packet,null);
 });
 console.log(passed+' tests passed');

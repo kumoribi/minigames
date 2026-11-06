@@ -160,6 +160,25 @@
       }
     }
     const touched = new Set();
+    // Stations collect only packets present at the start of this step.
+    // Intake direction rotates independently of recipe selection.
+    for (const [k, machine] of ordered) {
+      if (machine.type !== 'machine') continue;
+      const [x,y] = k.split(',').map(Number);
+      for (let i=0;i<DIR.length;i++) {
+        const side=(s.ticks+i)%DIR.length, [dx,dy]=DIR[side];
+        const sourceKey=key(x+dx,y+dy), lane=at(s,x+dx,y+dy);
+        if (!lane || !['belt','splitter','bridge'].includes(lane.type)) continue;
+        const slot=lane.type==='bridge' ? (side%2?'v':'h') : 'packet';
+        const packet=snapshot.get(sourceKey)?.[slot];
+        if (!packet || lane[slot]!==packet || touched.has(sourceKey+':'+slot)) continue;
+        if (!accepts(machine,packet.type,side,true)) continue;
+        lane[slot]=null;
+        touched.add(sourceKey+':'+slot);
+        put(s,machine,packet.type,side);
+        break;
+      }
+    }
     for (const [k,e] of ordered) {
       const [x,y] = k.split(',').map(Number);
       if (e.type === 'belt' || e.type === 'splitter' || e.type === 'bridge') {
@@ -172,6 +191,16 @@
             const [dx,dy]=DIR[d], target=at(s,x+dx,y+dy);
             if(accepts(target,p.type,d,false)) { put(s,target,p.type,d); e[slot]=null; e.turn++; break; }
           }
+        }
+      } else if (e.type === 'source' || e.type === 'machine') {
+        const item=snapshot.get(k).out;
+        const [dx,dy]=DIR[e.dir], target=at(s,x+dx,y+dy);
+        if (item && e.out[0]===item && !touched.has(k+':out')
+          && target && ['belt','splitter','bridge'].includes(target.type)
+          && accepts(target,item,e.dir,false)) {
+          e.out.shift();
+          touched.add(k+':out');
+          put(s,target,item,e.dir);
         }
       } else if (e.type === 'cat') {
         const [ix,iy]=DIR[e.input], [ox,oy]=DIR[e.dir];
