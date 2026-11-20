@@ -1,0 +1,159 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>風待ちの里</title><style>
+*{box-sizing:border-box}body{margin:0;color:#23443d;background:#e3f3eb;font:15px system-ui}main{height:100dvh;display:flex;flex-direction:column}header,footer{padding:10px max(12px,3vw);display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fffaf0}header{justify-content:space-between;border-bottom:1px solid #c9d8ca}h1{font: bold clamp(20px,4vw,32px) serif;margin:0}button,select{font:inherit;min-height:44px;border:1px solid #c3cdb9;border-radius:12px;padding:6px 12px;background:#fffdf5;color:inherit;cursor:pointer}button.active,#play{background:#285e4d;color:white}section{position:relative;flex:1;min-height:0;background:linear-gradient(#a9dbe7,#ddf0e3 80%)}canvas{width:100%;height:100%;touch-action:none;display:block}output{position:absolute;bottom:10px;left:12px;background:#fffff2eb;padding:7px 12px;border-radius:20px;pointer-events:none}footer{justify-content:center}dialog{max-width:min(410px,90vw);border:0;border-radius:16px;color:inherit;padding:24px}dialog p{line-height:1.7}button:focus-visible{outline:3px solid orange}</style>
+<main><header><h1>風待ちの里</h1><a href="../" aria-label="ミニゲーム集に戻る">ゲーム一覧</a><div><button id="play">▶ 再生</button> <button id="zoom">全景</button> <button id="help">遊び方</button></div></header><section><canvas aria-label="川沿いの箱庭"></canvas><output id="note">朝の村です。▶ で住民が動き出します。</output></section><footer><button data-tool="view" class="active">眺める</button><button data-tool="bench">ベンチ</button><button data-tool="flower">花壇</button><button data-tool="road">小道</button></footer></main>
+<dialog><h2>風待ちの里の暮らし</h2><p>▶ で村の一日が始まります。住民に触れると今の仕事が分かります。下の道具を選び、空いた草地に触れて配置します。ベンチには休憩中の住民が向かいます。</p><p>ドラッグで村を一周できます。「全景」で島全体を表示します。羊が逃げても羊飼いが迎えに行きます。</p><label>羊の脱走 <select id="events"><option value="on">たまに</option><option value="off">なし</option></select></label><p>配置と進行はこのブラウザに自動保存します。別タブへ移ると停止し、再開は手動です。</p><button id="closeHelp">閉じる</button></dialog>
+<script>
+const canvas=document.querySelector('canvas'),gl=canvas.getContext('webgl',{antialias:true,alpha:true}),N=16,key='kazemachi-v1';
+const fixed=new Map(),at=(x,y)=>x+','+y;
+function put(x,y,type){fixed.set(at(x,y),type)}
+for(let x=0;x<N;x++)put(x,8,'road');
+for(let y=1;y<15;y++)for(const x of [3,11])put(x,y,'road');
+for(const [x,y,k] of [[2,3,'house'],[4,5,'house'],[12,4,'house'],[10,9,'mill'],[2,10,'house'],[12,12,'house'],[4,13,'pen'],[4,7,'wheat'],[5,7,'wheat'],[5,6,'wheat'],[10,5,'bench']])put(x,y,k);
+for(let x=0;x<N;x++)for(let y=0;y<N;y++)if((x*31+y*23+x*y)%13<2&&!fixed.has(at(x,y))&&x!==7&&x!==8)put(x,y,'tree');
+put(9,7,'tree');
+function river(x,y){return (x===7||x===8)&&y!==8}
+function walk(x,y){return x>=0&&y>=0&&x<N&&y<N&&!river(x,y)&&![ 'house','mill','tree','wheat','pen'].includes(fixed.get(at(x,y)))}
+function path(x,y,a,b){let q=[[x,y,[]]],seen=new Set([at(x,y)]);for(let i=0;i<q.length;i++){let [u,v,p]=q[i];if(u===a&&v===b)return p;for(let [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){let s=u+dx,t=v+dy,k=at(s,t);if(!seen.has(k)&&walk(s,t)){seen.add(k);q.push([s,t,[...p,[s,t]]])}}}return []}
+let time=0,next=42,escapeTime=-1,placed={},running=false,tool='view',near=true,pan=[0,0],unit,ox,oy;
+const names=['ハル','ミナ','トト','スズ','リク','アオ','ユイ','ノノ'],colors=['#467b9d','#c46c54','#7e839d','#d79c40','#739271','#b26d84','#487c77','#ad8052'];
+const people=names.map((name,i)=>({name,x:i<4?3:11,y:2+i,route:[],phase:i%3,wait:i*.7,job:'朝の散歩',load:false}));
+try{let s=JSON.parse(localStorage.getItem(key));if(s&&s.people?.length===8){time=s.time;next=s.next;escapeTime=s.escapeTime;placed=s.placed;Object.entries(placed).forEach(([k,v])=>fixed.set(k,v));people.forEach((p,i)=>Object.assign(p,s.people[i]));events.value=s.events}}catch{}
+function save(){try{localStorage.setItem(key,JSON.stringify({time,next,escapeTime,placed,people,events:events.value}))}catch{note.textContent='このブラウザでは保存できません'}}
+function plan(p,i){let benches=[...fixed].filter(e=>e[1]==='bench'),seat=benches.at(-1)[0].split(',').map(Number);
+let stops=i<3?[[3,7,'麦を刈りに'],[11,9,'風車へ麦を運搬中'],[...seat,'ベンチでひと休み']]:[[11,2+i,'村を散歩中'],[...seat,'ベンチでひと休み'],[3,13,'羊を見に']];
+let [a,b,label]=stops[p.phase];p.load=i<3&&p.phase===1;p.phase=(p.phase+1)%3;p.job=label;p.route=path(Math.round(p.x),Math.round(p.y),a,b);p.wait=1.2+i*.2}
+function advance(dt){time+=dt;if(events.value==='on'&&time>=next){escapeTime=time;next=time+100;note.textContent='羊が柵の外へ。羊飼いが迎えに出ました。'}if(escapeTime>=0&&time-escapeTime>18){escapeTime=-1;note.textContent='羊と羊飼いが牧場に戻りました。'}people.forEach((p,i)=>{if(!p.route.length){p.wait-=dt;if(p.wait<=0)plan(p,i);return}let [x,y]=p.route[0],d=Math.hypot(x-p.x,y-p.y),step=dt*.95;if(d<=step){p.x=x;p.y=y;p.route.shift()}else{p.x+=(x-p.x)*step/d;p.y+=(y-p.y)*step/d}})}
+let baseZ=0, angle=Math.PI/4, vertices=[], objectId=0;
+if(!gl){note.textContent='3D表示にはWebGL対応ブラウザが必要です。';throw Error('WebGL unavailable')}
+function shade(color){return color}
+function poly(points,color){
+ const rgb=parseInt(color.slice(1),16),a=points[0],b=points[1],c=points[2];
+ const u=b.map((v,i)=>v-a[i]),v=c.map((val,i)=>val-b[i]);
+ const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+ const len=Math.hypot(...n)||1;
+ for(const i of [0,1,2,0,2,3]){let [x,y,z]=points[i];vertices.push(x,y,z+baseZ,...n.map(t=>t/len),((rgb>>16)&255)/255,((rgb>>8)&255)/255,(rgb&255)/255,objectId)}
+}
+function box(x,y,z,w,d,h,color){
+ const corners=[[x,y,z],[x+w,y,z],[x+w,y+d,z],[x,y+d,z],[x,y,z+h],[x+w,y,z+h],[x+w,y+d,z+h],[x,y+d,z+h]];
+ for(const face of [[4,5,6,7],[3,2,1,0],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]])poly(face.map(i=>corners[i]),color)
+}
+function detail(x,y,k){
+ if(k==='house'||k==='mill'){let scale=k==='mill'?1.55:1,offset=k==='mill'?-.26:0;
+ let roof=k==='mill'?['#7b9396','#89a0a1','#71888d']:['#df8062','#e48a65','#c86950'];
+ for(let tier=0;tier<4;tier++)for(let tile=0;tile<7;tile++){
+ let edge=.12+tier*.13;
+ for(let a of [-.10+tier*.13,1-edge+.10])box(x+offset+a*scale,y+offset+(-.09+tile*.17)*scale,(1.031+tier*.14)*scale,.12*scale,.157*scale,.022*scale,roof[(tier+tile+x)%3])}}
+ if(k==='tree'){let big=x===9&&y===7,top=big?2.41:1.61;
+ for(let n=0;n<7;n++){let a=((n*7+x)%11)/15,b=((n*3+y)%9)/13;
+ box(x+.06+a,y+.04+b,top-.21-(n%3)*.09,.18,.20,.15,['#a5c85d','#8cbc59','#78a84c'][n%3])}}
+}
+function drawObj(x,y,k){let B=(a,b,z,w,d,h,c)=>box(x+a,y+b,z,w,d,h,c);
+if(k==='tree'&&x===9&&y===7){B(.34,.34,0,.36,.38,1.45,'#8e623e');for(let [a,b,z,w,d,h,c] of [[-.45,.05,1.04,.96,.83,.62,'#509258'],[.33,-.35,1.22,.92,1,.68,'#64a24c'],[.19,.47,1.33,1,.82,.58,'#78aa50'],[-.22,.14,1.71,1.12,.85,.55,'#89bb58'],[.12,.22,2.15,.58,.58,.26,'#aacf6b']])B(a,b,z,w,d,h,c);return}
+if(k==='tree'){B(.4,.4,0,.2,.2,.8,'#93663d');for(let j=0;j<3;j++)B(.07+j*.1,.07+j*.1,.55+j*.32,.86-j*.2,.86-j*.2,.42,['#43874c','#5da250','#82b852'][j])}
+if(k==='mill'){let scale=1.55;B=(a,b,z,w,d,h,c)=>box(x+a*scale-.26,y+b*scale-.26,z*scale,w*scale,d*scale,h*scale,c)}
+if(k==='house'||k==='mill'){B(0,0,0,1,1,.9,'#ffe0a1');B(.35,.99,0,.27,.03,.58,'#976745');B(.99,.23,.35,.04,.32,.33,'#82bfd0');for(let j=0;j<4;j++)B(-.1+j*.13,-.1,.88+j*.14,1.2-j*.26,1.2,.15,k==='mill'?'#697f85':'#c86449');for(let h of [.18,.78])B(-.01,1,h,1.02,.035,.06,'#a16e49');for(let u of [.05,.78]){B(u,1.02,.32,.16,.04,.23,'#ffce72');B(u,1.03,.56,.21,.05,.05,'#886147')}B(.15,.15,1.2,.2,.2,.42,'#a69281');}
+if(k==='wheat'||k==='flower'){B(.04,.04,0,.92,.92,.09,'#9b7548');for(let j=0;j<9;j++)B(.13+(j%3)*.27,.13+Math.floor(j/3)*.27,.09,.14,.14,k==='wheat'?.44:.19,k==='wheat'?'#efc64e':['#eb8591','#ffe190','#b698d3'][j%3])}
+if(k==='bench'){B(.1,.2,0,.13,.51,.25,'#775c43');B(.76,.2,0,.13,.51,.25,'#775c43');B(.05,.2,.24,.9,.53,.1,'#cc9664');B(.05,.17,.34,.9,.1,.23,'#d6a372')}
+if(k==='pen'){for(let j=0;j<4;j++)B(j*.25,0,0,.1,.1,.4,'#bb915f');B(0,0,.23,1,.08,.08,'#e5bb86')}}
+function person(x,y,c,load){box(x+.28,y+.28,0,.26,.22,.18,'#685843');box(x+.23,y+.23,.16,.36,.3,.3,c);box(x+.21,y+.2,.46,.38,.36,.32,'#f4c599');box(x+.19,y+.18,.73,.42,.4,.12,'#8b684d');if(load)box(x+.48,y+.4,.18,.28,.22,.29,'#edc35d')}
+function flock(){let e=escapeTime<0?0:time-escapeTime;return [Math.max(0,Math.min(1,e/5,(18-e)/5)),Math.max(0,Math.min(1,(e-3)/4,(18-e)/5))]}
+function height(x,y){
+ if(x===7||x===8)return y===8?.25:-.84;
+ if(x===9)return .34;
+ let bank=x>9?.60:x===6?.10:0;
+ let ridge=x<6||x>9;
+ return bank+(ridge&&y<=5?.72:0)+(ridge&&y<=2?.84:0)
+}
+function actorHeight(x,y){
+ let tx=Math.floor(x+.4),ty=Math.floor(y+.4);
+ if(fixed.get(at(tx,ty))==='road'&&ty>0){let rise=height(tx,ty-1)-height(tx,ty);
+ if(rise>.5)return height(tx,ty)+rise*(3-Math.floor((y+.4-ty)*4))/4}
+ let a=Math.floor(x),b=Math.floor(y),u=x-a,v=y-b;
+ return (height(a,b)*(1-u)+height(a+1,b)*u)*(1-v)+(height(a,b+1)*(1-u)+height(a+1,b+1)*u)*v
+}
+function masonry(x,y,z){
+ const stone=['#9c9689','#b1a795','#a29b8e','#b7ae9b'];
+ for(let side=0;side<2;side++){
+ let neighbor=side?y+1<N?height(x,y+1):-1.35:x+1<N?height(x+1,y):-1.35;
+ for(let row=0;z-.16-row*.23>neighbor+.02;row++){
+ let top=z-.13-row*.23,bottom=Math.max(neighbor,top-.213);
+ for(let col=0;col<4;col++){let a=Math.max(0,(col-(row%2)*.5)/3),b=Math.min(1,(col+1-(row%2)*.5)/3)-.015;
+ if(b<=a)continue;let c=stone[(row+col*7+x+y)%4];
+ if(side)poly([[x+a,y+1.002,bottom],[x+b,y+1.002,bottom],[x+b,y+1.002,top],[x+a,y+1.002,top]],c);
+ else poly([[x+1.002,y+a,bottom],[x+1.002,y+b,bottom],[x+1.002,y+b,top],[x+1.002,y+a,top]],shade(c,.79))
+ }} }}
+function ground(){
+
+ for(let x=0;x<N;x++)for(let y=0;y<N;y++){
+ objectId=1+x+y*N;let z=height(x,y),water=river(x,y),bridge=(x===7||x===8)&&y===8,k=fixed.get(at(x,y));
+ let grass=['#adc96b','#bad57a','#a9c768','#b1ce70'][(x*11+y*13+x*y)%4];
+ box(x,y,-1.55,1,1,.48,'#a38d78');
+ box(x,y,-1.07,1,1,(water||bridge?-.86:z-.101)-(-1.07),water||bridge?'#54b4ce':'#ae9271');
+ if(!water&&!bridge)box(x,y,z-.10,1,1,.10,k==='road'?'#ddc89b':grass);
+ if(!water&&!bridge){masonry(x,y,z);
+ if(k==='road'&&y>0){let rise=height(x,y-1)-z;if(rise>.5)for(let step=0;step<4;step++)
+ box(x,y+step*.25,z,1,.248,rise*(3-step)/4+.012,'#c9b99b')}
+ }
+ if(water||bridge){poly([[x,y,-.84],[x+1,y,-.84],[x+1,y+1,-.84],[x,y+1,-.84]],['#61c9d5','#59bfd0','#74d2d9'][(x+y)%3]);box(x+.13,y+.42,-.83,.36,.035,.012,'#b0e8e3')}
+ if(bridge){for(let side of [.08,.81])box(x+.39,y+side,-.85,.18,.15,1.06,'#916747');for(let n=0;n<5;n++)box(x+n*.2,y,.12,.197,1,.13,n%2?'#c69761':'#d5ac72');}
+ if(!k&&!water&&(x*11+y*7)%4===0){for(let n=0;n<3;n++){box(x+.16+n*.21,y+.28+n%2*.22,z,.08,.065,.12,'#86a651');if((x+y)%3===0)box(x+.15+n*.21,y+.28+n%2*.22,z+.11,.11,.10,.05,'#fff1ad')}}
+
+ }
+ }
+function blade(x,y,z,rotation){
+ const rotor=(u,d,r)=>[x+u*Math.cos(rotation)-r*Math.sin(rotation),y+d,z+u*Math.sin(rotation)+r*Math.cos(rotation)];
+ for(let [start,end,width,depth,color] of [[0,1.08,.045,.06,'#aa774b'],[.40,1.02,.18,.04,'#ffe6ad']]){
+ let corners=[[start,0,0],[end,0,0],[end,depth,0],[start,depth,0],[start,0,width],[end,0,width],[end,depth,width],[start,depth,width]].map(p=>rotor(...p));
+ for(let face of [[0,1,5,4],[2,3,7,6],[4,5,6,7],[0,3,2,1],[1,2,6,5],[3,0,4,7]])poly(face.map(i=>corners[i]),color)
+ }}
+const vertexSource=`attribute vec3 pos,norm,tint;attribute float id;
+uniform float angle,mode;uniform vec2 scale,center;
+varying vec3 color,normal,lightPos;varying float pick;
+void main(){vec3 p=pos-vec3(8.,8.,0.);
+ lightPos=vec3((p.x+p.y)*.057,(p.x-p.y+1.6*p.z)*.047,(p.x-p.y-1.25*p.z)*.035);
+ float c=cos(angle),s=sin(angle),d=c*p.x+s*p.y;
+ vec3 cam=vec3((s*p.x-c*p.y-center.x)*scale.x,(p.z*.84-d*.54-center.y)*scale.y,-(d*.84+p.z*.54)*.045);
+ gl_Position=vec4(mode==1.?lightPos:cam,1.);color=tint;normal=norm;pick=id;}`;
+const fragmentSource=`precision highp float; uniform float mode;uniform sampler2D shadow;
+varying vec3 color,normal,lightPos;varying float pick;
+void main(){if(mode==1.){float z=gl_FragCoord.z*255.;gl_FragColor=vec4(floor(z)/255.,fract(z),0.,1.);return;}
+ if(mode==2.){gl_FragColor=vec4(mod(pick,256.)/255.,floor(pick/256.)/255.,0.,1.);return;}
+ vec3 p=lightPos*.5+.5;float lit=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){vec2 t=texture2D(shadow,p.xy+vec2(float(i),float(j))/1024.).rg;lit+=step(p.z-.0015,t.r+t.g/255.)/9.;}
+ float direct=max(0.,dot(normalize(normal),normalize(vec3(-1.,1.,1.25))));
+ gl_FragColor=vec4(color*(vec3(.61,.66,.72)+lit*direct*vec3(.58,.49,.36)),1.);}`;
+function shader(type,source){const sh=gl.createShader(type);gl.shaderSource(sh,source);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh}
+const prog=gl.createProgram();gl.attachShader(prog,shader(gl.VERTEX_SHADER,vertexSource));gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,fragmentSource));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
+const loc=k=>gl.getUniformLocation(prog,k),attrs=['pos','norm','tint','id'].map(k=>gl.getAttribLocation(prog,k));
+const fixedBuffer=gl.createBuffer(),movingBuffer=gl.createBuffer(),shadowMap=gl.createTexture(),target=gl.createFramebuffer(),depth=gl.createRenderbuffer();
+gl.bindTexture(gl.TEXTURE_2D,shadowMap);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,1024,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+for(let p of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,p,gl.NEAREST);
+gl.bindFramebuffer(gl.FRAMEBUFFER,target);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,shadowMap,0);
+gl.bindRenderbuffer(gl.RENDERBUFFER,depth);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,1024,1024);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,depth);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+gl.enable(gl.DEPTH_TEST);gl.disable(gl.DITHER);
+function upload(buffer,usage){gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vertices),usage);let count=vertices.length/10;vertices=[];return count}
+let fixedCount=0,movingCount=0,layout=-1;
+function build(){
+ if(layout!==Object.keys(placed).length){layout=Object.keys(placed).length;ground();
+ for(let [key,k] of fixed){const [x,y]=key.split(',').map(Number);objectId=1+x+y*N;baseZ=height(x,y);drawObj(x,y,k);detail(x,y,k)}
+ baseZ=0;for(let x of [7,8])for(let edge of [.02,.94]){objectId=1+x+8*N;box(x,8+edge,.25,.09,.07,.37,'#99724a');box(x,8+edge,.54,1,.065,.075,'#d1a571')}
+ fixedCount=upload(fixedBuffer,gl.STATIC_DRAW)}
+ objectId=1+10+9*N;for(let i=0;i<4;i++)blade(10.52,10.77,2.28,time*.65+i*Math.PI/2);
+ people.forEach((p,i)=>{objectId=300+i;baseZ=actorHeight(p.x,p.y);person(p.x,p.y,colors[i],p.load)});baseZ=0;objectId=0;let [s,g]=flock();box(4.25,13.3+s,.14,.52,.32,.3,'#fff4d9');box(4.42,13.53+s,.27,.25,.24,.23,'#62594c');person(4.6,13+g,'#70856a',false);movingCount=upload(movingBuffer,gl.DYNAMIC_DRAW)
+}
+function pass(mode){gl.uniform1f(loc('mode'),mode);for(let [buf,count] of [[fixedBuffer,fixedCount],[movingBuffer,movingCount]]){gl.bindBuffer(gl.ARRAY_BUFFER,buf);attrs.forEach((a,i)=>{gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,i===3?1:3,gl.FLOAT,false,40,i*12)});gl.drawArrays(gl.TRIANGLES,0,count)}}
+let lastScene='';
+function draw(pick=false){const w=canvas.clientWidth,h=canvas.clientHeight,r=Math.min(devicePixelRatio,1.6),state=[w,h,r,time,angle,near,Object.keys(placed).length].join('/');
+ if(!pick&&state===lastScene)return;lastScene=state;
+ if(canvas.width!==Math.round(w*r)||canvas.height!==Math.round(h*r)){canvas.width=Math.round(w*r);canvas.height=Math.round(h*r)}
+ build();const size=near?Math.min(w/9,h/6.4):Math.min(w/24,h/16);gl.uniform1f(loc('angle'),angle);gl.uniform2f(loc('scale'),2*size/w,2*size/h);gl.uniform2f(loc('center'),0,.4);
+ if(!pick){gl.bindTexture(gl.TEXTURE_2D,null);gl.bindFramebuffer(gl.FRAMEBUFFER,target);gl.viewport(0,0,1024,1024);gl.clearColor(1,1,1,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);pass(1)}
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.bindTexture(gl.TEXTURE_2D,shadowMap);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);pass(pick?2:0)
+}
+function hit(px,py){draw(true);let rgba=new Uint8Array(4);gl.readPixels(Math.floor(px*canvas.width/canvas.clientWidth),canvas.height-1-Math.floor(py*canvas.height/canvas.clientHeight),1,1,gl.RGBA,gl.UNSIGNED_BYTE,rgba);lastScene='';draw();return rgba[0]+rgba[1]*256}
+let last=0,lastSave=0;function frame(t){if(running){advance(Math.min(.09,(t-last)/1000));if(t-lastSave>4000){save();lastSave=t}}last=t;draw();requestAnimationFrame(frame)}requestAnimationFrame(frame);
+function run(v){running=v;play.textContent=v?'Ⅱ 停止':'▶ 再生';if(!v)save()}
+play.onclick=()=>{run(!running);note.textContent=running?'村の一日が始まります。':'一時停止中'};zoom.onclick=()=>{near=!near;pan=[0,0];zoom.textContent=near?'全景':'拡大'};help.onclick=()=>document.querySelector('dialog').showModal();closeHelp.onclick=()=>document.querySelector('dialog').close();events.onchange=save;document.onvisibilitychange=()=>{if(document.hidden)run(false)};window.addEventListener('pagehide',save);
+document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{tool=b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(v=>v.classList.toggle('active',v===b));note.textContent=tool==='view'?'気になる住民に触れてみましょう。':'置きたい草地に触れてください。'});
+let start;canvas.onpointerdown=e=>{start=[e.clientX,e.clientY,angle];canvas.setPointerCapture(e.pointerId)};canvas.onpointercancel=()=>start=null;canvas.onpointermove=e=>{if(start)angle=start[2]+(e.clientX-start[0])*.008};canvas.onpointerup=e=>{if(!start)return;let moved=Math.hypot(e.clientX-start[0],e.clientY-start[1]);start=null;if(moved>7)return;let rect=canvas.getBoundingClientRect(),px=e.clientX-rect.left,py=e.clientY-rect.top;let id=hit(px,py);if(tool==='view'){let p=people[id-300];if(p)note.textContent=p.name+'　'+p.job;return}
+let tile=id-1,x=tile%N,y=Math.floor(tile/N),k=at(x,y);if(!walk(x,y)||fixed.has(k)){note.textContent='水辺や使用中の土地には置けません。空いた草地を選んでください。';return}put(x,y,tool);placed[k]=tool;note.textContent='配置しました。';save()};
+</script></html>
